@@ -23,7 +23,7 @@ targets:
         script: |
           set -e
           cp AppIcon.png Resources/Assets.xcassets/AppIcon.appiconset/icon.png
-          swiftc House.swift main.swift -o "$TEMP_DIR/house-check"
+          xcrun --sdk macosx swiftc -sdk "$(xcrun --sdk macosx --show-sdk-path)" House.swift main.swift -o "$TEMP_DIR/house-check"
           "$TEMP_DIR/house-check"
         basedOnDependencyAnalysis: false
     sources:
