@@ -1,0 +1,2 @@
+TitleArtwork-Empty.png: generated with the built-in image generation tool for this project.
+Final edit: Remove the entire figure, including face, hair, body and hands; retain the empty dark hallway, moonlight, lamp and peeling wallpaper. No person, silhouette, face, eyes or text.
