@@ -12,8 +12,8 @@ settings:
     CODE_SIGNING_REQUIRED: "NO"
     CODE_SIGNING_ALLOWED: "NO"
     CODE_SIGN_IDENTITY: ""
-    MARKETING_VERSION: "0.3.5"
-    CURRENT_PROJECT_VERSION: "8"
+    MARKETING_VERSION: "0.3.6"
+    CURRENT_PROJECT_VERSION: "9"
 targets:
   DontCallWaleed:
     type: application
@@ -34,6 +34,7 @@ targets:
       - path: HouseMaterials.swift
       - path: WaleedMesh.swift
       - path: IntroPhoneView.swift
+      - path: OpeningScene.swift
       - path: Resources
       - path: Artwork-Credit.txt
       - path: blackout.wav
@@ -49,7 +50,14 @@ targets:
       - path: heartbeat.wav
       - path: pickup.wav
       - path: ring.wav
-      - path: step.wav
+      - path: ringback.wav
+      - path: step-a.wav
+      - path: step-b.wav
+      - path: step-c.wav
+      - path: step-d.wav
+      - path: line-static.wav
+      - path: door-knock.wav
+      - path: door-latch.wav
       - path: sting.wav
       - path: TitleArtwork-Empty.png
       - path: VCR_OSD_MONO_1.001.ttf

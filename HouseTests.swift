@@ -22,5 +22,14 @@ import Testing
         #expect((fuse?.childNodes.count ?? 0) > 8)
     }
 
+    @Test func openingSceneHasStairsAndDoor() {
+        let opening = OpeningScene()
+        #expect(opening.camera.camera != nil)
+        #expect(opening.scene.rootNode.childNodes.count > 50)
+        #expect(OpeningLayout.floorHeight(at:-3) < OpeningLayout.upperFloor)
+        #expect(OpeningLayout.canOpenDoor(x:0,z:OpeningLayout.frontDoorZ+0.72))
+        opening.openFrontDoor()
+    }
+
     @Test func exteriorIsSolid() { #expect(!House(seed:0).walkable(0,0)) }
 }

@@ -50,7 +50,7 @@ final class Stick: UIView {
 }
 
 final class GameController: UIViewController {
-    enum Phase { case title, intro, playing, paused, caught, escaped }
+    enum Phase { case title, intro, downstairs, openingDoor, playing, paused, caught, escaped }
     private enum PhoneState {
         case idle, incoming(until: Float), outgoing(started: Float)
     }
@@ -122,6 +122,11 @@ final class GameController: UIViewController {
     private let introOverlay = UIView()
     private let introCaption = UILabel()
     private let introPhone = IntroPhoneView(frame:.zero)
+    private var opening: OpeningScene?
+    private var pausedFrom = Phase.playing
+    private var nextKnock: Float = 0
+    private var distanceSinceStep: Float = 0
+    private var stepVoice = 0
     private var introBeat = -1
     private var introElapsed: Float = 0
     private var phoneState = PhoneState.idle
@@ -148,7 +153,7 @@ final class GameController: UIViewController {
     private var elapsed: Float = 0, yaw: Float = 0, pitch: Float = 0, battery: Float = 100, stamina: Float = 100
     private var running = false, hidden = false, flashlight = true, power = false, soundEnabled = true
     private var collected = Set<Int>(), route = [Cell]()
-    private var nextCall: Float = 24, huntUntil: Float = 0, routeTime: Float = 0, messageUntil: Float = 0, footTime: Float = 0
+    private var nextCall: Float = 24, huntUntil: Float = 0, routeTime: Float = 0, messageUntil: Float = 0
     private var enemyTarget = House.enemy
     private var routedTarget: Cell?
     private var patrolIndex = 0
@@ -950,7 +955,9 @@ final class GameController: UIViewController {
     }
 
     private func loadAudio() {
-        try? AVAudioSession.sharedInstance().setCategory(.ambient,mode:.default)
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.playback,mode:.default,options:[.mixWithOthers])
+        if soundEnabled { try? session.setActive(true) }
         for i in 1...3 {
             if let source = SCNAudioSource(fileNamed:"burp\(i).wav") {
                 source.isPositional = true; source.shouldStream = false; source.volume = 1
@@ -967,14 +974,41 @@ final class GameController: UIViewController {
         }
         ringtone = loopingSource("ring.wav",volume:0.95)
         fridgeHum = loopingSource("fridge.wav",volume:0.6)
-        for name in ["drone","ring","step","sting","pickup","heartbeat","blackout","scare-burp"] {
+        for name in ["drone","ring","ringback","step-a","step-b","step-c","step-d","line-static","door-knock","door-latch","sting","pickup","heartbeat","blackout","scare-burp"] {
             if let url = Bundle.main.url(forResource:name,withExtension:"wav"),let p = try? AVAudioPlayer(contentsOf:url) { p.prepareToPlay(); players[name] = p }
         }
         players["sting"]?.volume = 0.55
-        for name in ["drone","ring","heartbeat"] { players[name]?.numberOfLoops = -1; players[name]?.volume = 0.35 }
+        for name in ["drone","heartbeat"] { players[name]?.numberOfLoops = -1; players[name]?.volume = 0.30 }
+        for name in ["ring","ringback"] { players[name]?.numberOfLoops = -1 }
+        players["ring"]?.volume = 0.94
+        players["ringback"]?.volume = 0.80
     }
     private func play(_ name:String) { guard soundEnabled else { return }; players[name]?.currentTime = 0; players[name]?.play() }
-    @objc private func toggleSound() { soundEnabled.toggle(); soundButton.setTitle(soundEnabled ? "SOUND: ON" : "SOUND: OFF",for:.normal); if !soundEnabled { players.values.forEach { $0.stop() }; stopSceneAudio() } }
+
+    private func footsteps(distance:Float,sprinting:Bool,stairs:Bool = false) {
+        guard distance > 0.002 else { return }
+        distanceSinceStep += distance
+        let stride: Float = stairs ? 0.50 : (sprinting ? 1.01 : 0.78)
+        guard distanceSinceStep >= stride else { return }
+        distanceSinceStep.formTruncatingRemainder(dividingBy:stride)
+        let names = ["step-a","step-b","step-c","step-d"]
+        let name = names[stepVoice]
+        stepVoice = (stepVoice+1)%names.count
+        players[name]?.volume = sprinting ? 0.83 : (stairs ? 0.71 : 0.66)
+        play(name)
+    }
+    @objc private func toggleSound() {
+        soundEnabled.toggle()
+        soundButton.setTitle(soundEnabled ? "SOUND: ON" : "SOUND: OFF",for:.normal)
+        if soundEnabled {
+            try? AVAudioSession.sharedInstance().setActive(true)
+        } else {
+            players.values.forEach { $0.stop() }
+            phoneVoice.stopSpeaking(at:.immediate)
+            stopSceneAudio()
+            try? AVAudioSession.sharedInstance().setActive(false,options:.notifyOthersOnDeactivation)
+        }
+    }
     private func showMenu(_ title:String,_ detail:String,_ action:String) {
         titleLabel.text = title; detailLabel.text = detail; startButton.setTitle(action,for:.normal); shade.isHidden = false; controls.isHidden = true; stick.reset(); setRunning(false)
         players.values.forEach { $0.stop() }; stopSceneAudio(); sceneView.isPlaying = false
@@ -986,36 +1020,51 @@ final class GameController: UIViewController {
             beginIntro()
             return
         }
+        if phase == .paused && pausedFrom == .downstairs {
+            resumeDownstairs()
+            return
+        }
         if phase != .paused { resetGame() }
         beginPlaying()
     }
 
-    private func beginPlaying() {
-        phase = .playing
+    private func showGameplay() {
         introOverlay.isHidden = true
         shade.isHidden = true
         controls.isHidden = false
         sceneView.isPlaying = true
         lastTime = 0
         UIApplication.shared.isIdleTimerDisabled = true
+    }
+
+    private func beginPlaying() {
+        phase = .playing
+        showGameplay()
+        lightButton.isHidden = false
+        phoneButton.isHidden = false
+        use.setTitle("USE",for:.normal)
         if soundEnabled {
             players["drone"]?.play()
             if case .incoming = phoneState { players["ring"]?.play() }
+            if case .outgoing = phoneState { players["ringback"]?.play() }
         }
         resumeSceneAudio()
     }
+
     private func beginIntro() {
-        resetGame()
+        let room = OpeningScene()
+        opening = room
+        camera = room.camera
+        sceneView.scene = room.scene
+        sceneView.pointOfView = room.camera
+        sceneView.audioListener = room.camera
         phase = .intro
         introElapsed = 0
         introBeat = -1
         lastTime = 0
-        enemy.isHidden = true
-        torch.light?.intensity = 0
-        houseAmbient?.intensity = 700
-        setRoomPower(940)
         shade.isHidden = true
         introOverlay.isHidden = false
+        introOverlay.backgroundColor = .clear
         introPhone.isHidden = true
         introPhone.alpha = 0
         introPhone.transform = CGAffineTransform(translationX:14,y:145)
@@ -1025,20 +1074,24 @@ final class GameController: UIViewController {
         updateIntro(dt:0)
     }
 
-    private func updateIntro(dt: Float) {
+    private func updateIntro(dt:Float) {
         introElapsed += dt
-        let glance = min(introElapsed/2.4,1)
-        camera.eulerAngles = SCNVector3(-0.015,-0.82+glance*0.91,0)
+        let sitting = min(1,max(0,(introElapsed-13.0)/1.9))
+        let eased = sitting*sitting*(3-2*sitting)
+        let floor = OpeningLayout.upperFloor
+        camera.position = SCNVector3(-1.94+1.22*eased,floor+0.73+0.87*eased,4.85-1.20*eased)
+        let glance = min(introElapsed/2.3,1)
+        camera.eulerAngles = SCNVector3(-0.32+0.32*eased,-0.12+0.27*glance-0.15*eased,0.12*(1-eased))
         let cue: Int
         switch introElapsed {
-        case ..<2.35: cue = 0
-        case ..<4.1: cue = 1
-        case ..<5.3: cue = 2
-        case ..<6.6: cue = 3
-        case ..<7.7: cue = 4
-        case ..<10.0: cue = 5
-        case ..<14.1: cue = 6
-        case ..<16.5: cue = 7
+        case ..<1.6: cue = 0
+        case ..<3.1: cue = 1
+        case ..<4.4: cue = 2
+        case ..<5.6: cue = 3
+        case ..<6.7: cue = 4
+        case ..<9.0: cue = 5
+        case ..<12.4: cue = 6
+        case ..<15.2: cue = 7
         default:
             skipIntro()
             return
@@ -1047,7 +1100,7 @@ final class GameController: UIViewController {
         introBeat = cue
         switch cue {
         case 0:
-            introCaption.text = "Yamen: “He told me to wait until morning.”"
+            introCaption.text = "YAMEN’S BEDROOM · 3:00 AM"
         case 1:
             introPhone.screen = .lock
             introPhone.isHidden = false
@@ -1055,67 +1108,141 @@ final class GameController: UIViewController {
                 self.introPhone.alpha = 1
                 self.introPhone.transform = .identity
             }
-            introCaption.text = "Yamen: “One call. That’s all.”"
-        case 2:
-            introPhone.screen = .home
             introCaption.text = nil
-            play("pickup")
-        case 3:
-            introPhone.screen = .recents
-        case 4:
-            introPhone.screen = .contact
+        case 2: introPhone.screen = .home
+        case 3: introPhone.screen = .recents
+        case 4: introPhone.screen = .contact
         case 5:
             introPhone.screen = .dialing
-            play("ring")
+            play("ringback")
         case 6:
-            players["ring"]?.stop()
+            players["ringback"]?.stop()
             introPhone.screen = .connected
-            introCaption.text = "Waleed: “Why did you call me at 3 AM?”"
+            introCaption.text = "Waleed: “Do you have a stick up his—”"
             if soundEnabled {
-                let reply = AVSpeechUtterance(string:"Why did you call me at three A M?")
+                let reply = AVSpeechUtterance(string:"Do you have a stick up his")
                 reply.voice = AVSpeechSynthesisVoice(language:"en-GB")
-                reply.rate = 0.45
+                reply.rate = 0.43
                 reply.pitchMultiplier = 0.86
                 phoneVoice.speak(reply)
             }
         default:
             phoneVoice.stopSpeaking(at:.immediate)
-            players["drone"]?.stop()
-            houseAmbient?.intensity = 0
-            setRoomPower(0)
+            play("line-static")
             introPhone.screen = .lost
-            play("blackout")
-            UIImpactFeedbackGenerator(style:.medium).impactOccurred()
-            UIView.animate(withDuration:0.55) {
+            introCaption.text = "Yamen: “Waleed? Hello?”"
+            UIView.animate(withDuration:0.43,delay:0.32,options:[.curveEaseIn],animations:{
                 self.introPhone.alpha = 0
                 self.introPhone.transform = CGAffineTransform(translationX:12,y:125)
-            }
-            introCaption.text = "Yamen: “Waleed? … Are you still there?”"
+            },completion:nil)
         }
     }
 
     @objc private func skipIntro() {
         guard phase == .intro else { return }
-        players["ring"]?.stop()
-        players["blackout"]?.stop()
+        players["ringback"]?.stop()
+        players["line-static"]?.stop()
         phoneVoice.stopSpeaking(at:.immediate)
-        introOverlay.backgroundColor = .clear
-        enemy.isHidden = false
+        let bed = OpeningLayout.bedside
+        camera.position = SCNVector3(bed.x,OpeningLayout.upperFloor+1.6,bed.z)
         camera.eulerAngles = SCNVector3Zero
-        houseAmbient?.intensity = 240
-        setRoomPower(0)
+        yaw = 0; pitch = 0; lookRoll = 0
+        movement = .zero
+        distanceSinceStep = 0
+        elapsed = 0
+        nextKnock = 0.70
+        message.text = ""
+        resumeDownstairs()
+    }
+
+    private func resumeDownstairs() {
+        phase = .downstairs
+        showGameplay()
+        lightButton.isHidden = true
+        phoneButton.isHidden = true
+        use.setTitle("OPEN",for:.normal)
+        status.text = "3:00 AM"
+        hint.text = "FOLLOW THE STAIRS"
+        stick.reset()
+        if soundEnabled { players["drone"]?.play() }
+    }
+
+    private func updateDownstairs(dt:Float) {
+        elapsed += dt
+        let runningHere = running && stamina > 2
+        let speed: Float = runningHere ? 3.4 : 2.1
+        let forward = -Float(stick.vector.y), strafe = Float(stick.vector.x)
+        let dx = (-sin(yaw)*forward+cos(yaw)*strafe)*speed*dt
+        let dz = (-cos(yaw)*forward-sin(yaw)*strafe)*speed*dt
+        let previous = camera.position
+        var p = previous
+        if OpeningLayout.walkable(x:p.x+dx,z:p.z) { p.x += dx }
+        if OpeningLayout.walkable(x:p.x,z:p.z+dz) { p.z += dz }
+        p.y = OpeningLayout.floorHeight(at:p.z)+1.60
+        camera.position = p
+        camera.eulerAngles = SCNVector3(pitch,yaw,0)
+        let traveled = distance(previous,p)
+        let staircase = (OpeningLayout.stairEnd...0).contains(p.z)
+        footsteps(distance:traveled,sprinting:runningHere,stairs:staircase)
+        stamina = min(100,max(0,stamina+(runningHere && traveled > 0.002 ? -13 : 13)*dt))
+        if running && stamina <= 2 { setRunning(false) }
+        if elapsed >= nextKnock {
+            players["door-knock"]?.volume = staircase || p.z > 0 ? 0.53 : 0.91
+            play("door-knock")
+            nextKnock = elapsed+Float.random(in:4.7...6.4)
+        }
+        if p.z > OpeningLayout.stairEnd {
+            objective.text = "GO DOWNSTAIRS"
+            hint.text = "FOLLOW THE STAIRS"
+        } else {
+            objective.text = "ANSWER THE FRONT DOOR"
+            hint.text = OpeningLayout.canOpenDoor(x:p.x,z:p.z) ? "TAP OPEN" : "FOLLOW THE KNOCKING"
+        }
+        use.isEnabled = OpeningLayout.canOpenDoor(x:p.x,z:p.z)
+        use.alpha = use.isEnabled ? 1 : 0.46
+    }
+
+    private func answerFrontDoor() {
+        guard OpeningLayout.canOpenDoor(x:camera.position.x,z:camera.position.z) else { return }
+        phase = .openingDoor
+        introElapsed = 0
+        controls.isHidden = true
+        players["door-knock"]?.stop()
+        players["drone"]?.stop()
+        play("door-latch")
+        opening?.openFrontDoor()
+    }
+
+    private func doorTransition(dt:Float) {
+        introElapsed += dt
+        if introElapsed >= 0.44 && introOverlay.isHidden {
+            introPhone.isHidden = true
+            introCaption.text = nil
+            introOverlay.backgroundColor = .black
+            introOverlay.isHidden = false
+            play("blackout")
+        }
+        if introElapsed >= 2.0 { finishOpening() }
+    }
+
+    private func finishOpening() {
+        opening = nil
+        introOverlay.backgroundColor = .clear
+        resetGame()
+        use.isEnabled = true
+        use.alpha = 1
         beginPlaying()
-        tell("Restore the power. Find three cyan fuses.",duration:7)
+        tell("The lights are out. Find three fuses to restore power.",duration:7)
     }
 
     private func resetGame() {
         house = House()
-        nextPipe = 7; nextTrap = 0; lastTrap = nil; readNotes = []
+        nextPipe = 7; nextTrap = 0; lastTrap = nil; readNotes = []; distanceSinceStep = 0
         movement = .zero; stepPhase = 0; lookRoll = 0
         elapsed = 0; nextBurp = 9; yaw = 0; pitch = 0; hidden = false; flashlight = true
         battery = 100; stamina = 100; collected = []; power = false; nextCall = 24
         phoneState = .idle; nextOutgoing = 0; lure = nil; remoteRing = nil
-        huntUntil = 0; route = []; routeTime = 0; patrolIndex = 0; footTime = 0; gait = 0
+        huntUntil = 0; route = []; routeTime = 0; patrolIndex = 0; gait = 0
         enemyTarget = House.enemy; routedTarget = nil; enemyAwake = false
         lastKnownPlayer = nil; searchRoute = []
         buildWorld()
@@ -1127,16 +1254,24 @@ final class GameController: UIViewController {
         tell("Find the cyan fuses. CALL WALEED to distract him.",duration:7)
     }
 
-    @objc private func pauseGame() { guard phase == .playing else { return }; phase = .paused; showMenu("STAY QUIET","The house is paused.\nFind three cyan fuses, then the red fuse box.\nThe green door is your way out.\nGold handles mark hiding cupboards.","RESUME") }
+    @objc private func pauseGame() {
+        guard phase == .playing || phase == .downstairs else { return }
+        pausedFrom = phase
+        phase = .paused
+        let detail = pausedFrom == .downstairs ?
+            "Go downstairs and answer the knocking at the front door." :
+            "Find three cyan fuses, then the red fuse box. The green door is your way out."
+        showMenu("STAY QUIET",detail,"RESUME")
+    }
+
     @objc private func background() {
-        if phase == .intro {
-            skipIntro()
-        }
+        if phase == .intro { skipIntro() }
+        if phase == .openingDoor { finishOpening() }
         pauseGame()
     }
 
     @objc private func toggleRun() {
-        guard phase == .playing, !hidden, stamina > 2 else { return }
+        guard (phase == .playing || phase == .downstairs), !hidden, stamina > 2 else { return }
         setRunning(!running)
     }
 
@@ -1165,6 +1300,7 @@ final class GameController: UIViewController {
             world.rootNode.addChildNode(node)
             remoteRing = node
             if soundEnabled, let ringtone { node.addAudioPlayer(SCNAudioPlayer(source:ringtone)) }
+            play("ringback")
             tell("Ringing in the \(room.kind.rawValue). Hang up before he traces you.",duration:4)
         case .incoming:
             endCall()
@@ -1180,6 +1316,7 @@ final class GameController: UIViewController {
         if case .outgoing = phoneState { nextOutgoing = elapsed+12 }
         phoneState = .idle
         players["ring"]?.stop()
+        players["ringback"]?.stop()
         remoteRing?.removeAllAudioPlayers()
         remoteRing?.removeFromParentNode()
         remoteRing = nil
@@ -1225,7 +1362,7 @@ final class GameController: UIViewController {
     }
 
     @objc private func look(_ g:UIPanGestureRecognizer) {
-        let d = g.translation(in:lookSurface); g.setTranslation(.zero,in:lookSurface); guard phase == .playing,!hidden else { return }
+        let d = g.translation(in:lookSurface); g.setTranslation(.zero,in:lookSurface); guard (phase == .playing || phase == .downstairs), !hidden else { return }
         yaw -= Float(d.x)*0.005; pitch = min(0.9,max(-0.9,pitch-Float(d.y)*0.004))
     }
     private func distance(_ a:SCNVector3,_ b:SCNVector3) -> Float { hypot(a.x-b.x,a.z-b.z) }
@@ -1235,6 +1372,7 @@ final class GameController: UIViewController {
     }
     private func tell(_ text:String,duration:Float = 4) { message.text = text; messageUntil = elapsed+duration }
     @objc private func interact() {
+        if phase == .downstairs { answerFrontDoor(); return }
         guard phase == .playing else { return }
         if hidden { hidden = false; tell("You step out. Listen before moving."); return }
         if let index = nearbyFuse() {
@@ -1499,13 +1637,18 @@ final class GameController: UIViewController {
     }
 
     @objc private func tick(_ link:CADisplayLink) {
-        guard phase == .playing || phase == .intro else { lastTime = 0; return }
+        guard phase == .playing || phase == .intro || phase == .downstairs || phase == .openingDoor else {
+            lastTime = 0
+            return
+        }
         guard lastTime != 0 else { lastTime = link.timestamp; return }
         let dt = min(Float(link.timestamp-lastTime),0.05)
         lastTime = link.timestamp
-        if phase == .intro {
-            updateIntro(dt:dt)
-            return
+        switch phase {
+        case .intro: updateIntro(dt:dt); return
+        case .downstairs: updateDownstairs(dt:dt); return
+        case .openingDoor: doorTransition(dt:dt); return
+        default: break
         }
         elapsed += dt
         if elapsed > nextBurp { ambientBurp(); nextBurp = elapsed+Float.random(in:10...24) }
@@ -1533,7 +1676,7 @@ final class GameController: UIViewController {
             lookRoll += (tilt-lookRoll)*min(1,dt*9)
             camera.position = p
             camera.eulerAngles = SCNVector3(pitch,yaw,lookRoll)
-            if stepped && elapsed > footTime { play("step"); footTime = elapsed+(sprint ? 0.3 : 0.55) }
+            footsteps(distance:traveled,sprinting:sprint)
         }
         stamina = min(100,max(0,stamina+(sprint && stepped ? -13 : 13)*dt))
         if running && stamina <= 2 { setRunning(false) }

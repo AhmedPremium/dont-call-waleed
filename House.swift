@@ -179,3 +179,28 @@ struct House {
         return true
     }
 }
+
+enum OpeningLayout {
+    static let upperFloor: Float = 2.85
+    static let stairEnd: Float = -5.6
+    static let frontDoorZ: Float = -10.45
+    static let bedside = (x: Float(-0.72), z: Float(3.65))
+
+    static func walkable(x:Float,z:Float) -> Bool {
+        guard z < 5.45 && z > frontDoorZ+0.18 else { return false }
+        if z >= 0.22 {
+            let onBed = x > -2.89 && x < -1.13 && z > 2.99
+            return abs(x) < 3.06 && !onBed
+        }
+        if z >= stairEnd-0.17 { return abs(x) < 0.82 }
+        return z > frontDoorZ+0.18 && abs(x) < 2.95
+    }
+
+    static func floorHeight(at z:Float) -> Float {
+        upperFloor*min(1,max(0,(z-stairEnd)/(-stairEnd)))
+    }
+
+    static func canOpenDoor(x:Float,z:Float) -> Bool {
+        abs(x) < 0.95 && z < frontDoorZ+1.27 && z >= frontDoorZ
+    }
+}

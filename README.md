@@ -2,7 +2,7 @@
 
 An original first-person horror prototype for iPad (iPadOS 17+) and iPhone, in landscape. Built with Apple's SceneKit and UIKit. No network access, ads, accounts, tracking, or in-app purchases.
 
-The opening follows Yamen through his lit house, lock screen, Phone app, recents, and the 3 AM call that cuts the power. You can skip it. The larger house has an east wing with a dining room, guest room, and sunroom. Each attempt varies the wing doorways and fuse locations.
+Yamen calls Waleed from bed at 3 AM. When the line breaks up, your first objective is to go downstairs and open the knocking front door. Skipping the cutscene takes you to the stairs objective. The larger house has an east wing with a dining room, guest room, and sunroom. Each attempt varies the wing doorways and fuse locations.
 
 Explore the Bedroom, Kitchen, Lounge, Study, Laundry and Workshop. Collect three cyan fuses, restore power at the red fuse box, and escape through the green door. Waleed patrols, gives chase on sight or sound, and searches the area around your last known position. His eyes glow red up close. Break his line of sight, then use a gold-handled cupboard to hide.
 

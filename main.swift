@@ -83,3 +83,21 @@ for seed in 0..<32 {
 }
 check(maps.count > 1 && fuseSets.count > 1, "Replay must vary both the floor plan and fuse placement")
 print("Validated 32 layouts: all rooms, fuses, hiding spots, and patrol points are reachable.")
+
+let bedside = OpeningLayout.bedside
+check(OpeningLayout.walkable(x:bedside.x,z:bedside.z), "Player must be able to stand beside the bed")
+check(!OpeningLayout.walkable(x:-2,z:4.25), "Player cannot walk through the bed")
+check(!OpeningLayout.walkable(x:1.18,z:-3), "Player cannot cross the staircase railing")
+let entrance = OpeningLayout.frontDoorZ+0.72
+check(OpeningLayout.canOpenDoor(x:0,z:entrance), "The downstairs front door must be actionable")
+check(!OpeningLayout.canOpenDoor(x:0,z:bedside.z), "The front door cannot be opened from upstairs")
+var lastHeight = OpeningLayout.upperFloor
+for i in 0...140 {
+    let z = bedside.z+(entrance-bedside.z)*Float(i)/140
+    check(OpeningLayout.walkable(x:bedside.x,z:z), "Route from the bed to the front door must be clear")
+    let height = OpeningLayout.floorHeight(at:z)
+    check(height <= lastHeight && lastHeight-height < 0.12, "Stair descent must be continuous")
+    lastHeight = height
+}
+check(lastHeight == 0,"Player must reach the downstairs floor")
+print("Validated the prologue route from upstairs bed to downstairs front door.")
