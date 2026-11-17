@@ -25,9 +25,10 @@ struct House {
     ].map(Array.init)
     static let spawn = Cell(x: 2, z: 14)
     static let enemy = Cell(x: 14, z: 2)
+    static let foyerEntrance = Cell(x:0,z:13)
     static let panel = Cell(x: 14, z: 14)
     static let exit = Cell(x: 7, z: 15)
-    static let closets = [Cell(x: 1, z: 14), Cell(x: 1, z: 3), Cell(x: 15, z: 9), Cell(x: 24, z: 3), Cell(x: 24, z: 13)]
+    static let closets = [Cell(x: 1, z: 14), Cell(x: 1, z: 3), Cell(x: 15, z: 9)]
     let rows: [[Character]]
     let fuses: [Cell]
     let patrol: [Cell]
@@ -61,24 +62,18 @@ struct House {
         }
 
         var layout = Self.originalRows
-        let wings = [1...4, 6...9, 11...15]
-        for z in layout.indices {
-            let room = wings.contains { $0.contains(z) }
-            layout[z] += Array(repeating:room ? "." : "#",count:9)
-            layout[z].append("#")
-        }
-        for band in wings {
-            let doorway = band.lowerBound + select(band.count)
-            layout[doorway][16] = "."
-        }
-        for z in [5, 10] {
-            let doorway = 18 + select(6)
-            layout[z][doorway] = "."
+        layout[Self.foyerEntrance.z][Self.foyerEntrance.x] = "."
+        // Shift the utility doors within each room while preserving the floor plan.
+        for wall in [5,10] {
+            layout[wall][3] = "#"
+            layout[wall][11] = "#"
+            layout[wall][3+select(2)] = "."
+            layout[wall][11+select(2)] = "."
         }
         let alternatives = [
-            [Cell(x:2,z:2), Cell(x:22,z:3), Cell(x:13,z:4)],
-            [Cell(x:23,z:8), Cell(x:19,z:7), Cell(x:23,z:6)],
-            [Cell(x:3,z:12), Cell(x:12,z:13), Cell(x:20,z:14)]
+            [Cell(x:2,z:2), Cell(x:5,z:3), Cell(x:13,z:4)],
+            [Cell(x:2,z:7), Cell(x:12,z:8), Cell(x:14,z:7)],
+            [Cell(x:3,z:12), Cell(x:12,z:13), Cell(x:10,z:14)]
         ]
         rows = layout
         let selectedFuses = alternatives.map { $0[select($0.count)] }
@@ -90,8 +85,8 @@ struct House {
         }
         let fuseTables = selectedFuses.map { Footprint($0,0,Self.fuseTableShift-0.18,0.46,0.32) }
         furniture = counters + fuseTables + [Footprint(kitchen,0,-0.93,0.52,0.195)]
-        patrol = [Self.enemy,Cell(x:23,z:3),Cell(x:2,z:2),Cell(x:2,z:8),
-                  Cell(x:21,z:8),Cell(x:23,z:13),Cell(x:14,z:14),Cell(x:3,z:13)]
+        patrol = [Self.enemy,Cell(x:2,z:2),Cell(x:2,z:8),
+                  Cell(x:12,z:8),Cell(x:14,z:14),Cell(x:3,z:13)]
     }
     var doorways: [(cell: Cell, rotated: Bool)] {
         var result = [(cell: Cell, rotated: Bool)]()
@@ -183,6 +178,10 @@ struct House {
 enum OpeningLayout {
     static let upperFloor: Float = 2.85
     static let stairEnd: Float = -5.6
+    static let portalLocalZ: Float = -8.02
+    static let portalWorldZ = (Float(House.foyerEntrance.z)+0.5)*House.tile
+    static let worldX: Float = -3.20
+    static let worldZ = portalWorldZ-portalLocalZ
     static let frontDoorZ: Float = -10.45
     static let bedside = (x: Float(-0.72), z: Float(3.65))
 
@@ -194,6 +193,16 @@ enum OpeningLayout {
         }
         if z >= stairEnd-0.17 { return abs(x) < 0.82 }
         return z > frontDoorZ+0.18 && abs(x) < 2.95
+    }
+
+    static func walkableInHouse(_ house:House,x:Float,z:Float,radius:Float = 0.25) -> Bool {
+        if abs(x) < 0.39 && abs(z-portalWorldZ) < 0.92 { return true }
+        if x >= 0 { return house.walkable(x,z,radius:radius) }
+        return walkable(x:x-worldX,z:z-worldZ)
+    }
+
+    static func heightInHouse(x:Float,z:Float) -> Float {
+        x < 0 ? floorHeight(at:z-worldZ) : 0
     }
 
     static func floorHeight(at z:Float) -> Float {

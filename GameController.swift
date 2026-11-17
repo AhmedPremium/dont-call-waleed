@@ -6,6 +6,7 @@ import CoreText
 final class Stick: UIView {
     var vector = CGPoint.zero
     private let knob = UIView()
+    private var dragStart: CGPoint?
     override init(frame: CGRect) {
         super.init(frame:frame)
         backgroundColor = UIColor.white.withAlphaComponent(0.06)
@@ -27,6 +28,7 @@ final class Stick: UIView {
 
     func reset() {
         vector = .zero
+        dragStart = nil
         positionKnob()
     }
 
@@ -37,8 +39,10 @@ final class Stick: UIView {
 
     private func track(_ touches: Set<UITouch>) {
         guard travel > 0, let point = touches.first?.location(in: self) else { return }
-        let dx = point.x - bounds.midX
-        let dy = point.y - bounds.midY
+        if dragStart == nil { dragStart = point }
+        let anchor = dragStart ?? point
+        let dx = point.x - anchor.x
+        let dy = point.y - anchor.y
         let divisor = max(travel, hypot(dx, dy))
         vector = CGPoint(x: dx / divisor, y: dy / divisor)
         positionKnob()
@@ -83,10 +87,7 @@ final class GameController: UIViewController {
         (.lounge, Cell(x:4,z:6), Cell(x:4,z:7)),
         (.study, Cell(x:12,z:6), Cell(x:12,z:7)),
         (.laundry, Cell(x:4,z:11), Cell(x:4,z:12)),
-        (.workshop, Cell(x:12,z:11), Cell(x:12,z:12)),
-        (.dining, Cell(x:21,z:1), Cell(x:21,z:2)),
-        (.guest, Cell(x:21,z:6), Cell(x:21,z:7)),
-        (.sunroom, Cell(x:21,z:11), Cell(x:21,z:12))
+        (.sunroom, Cell(x:12,z:11), Cell(x:12,z:12))
     ]
     private var phase = Phase.title
     private let sceneView = SCNView()
@@ -98,14 +99,14 @@ final class GameController: UIViewController {
     private var enemyAwake = false
     private var lastKnownPlayer: Cell?
     private var searchRoute = [Cell]()
-    private let shelter = Cell(x:24,z:6)
+    private let shelter = Cell(x:15,z:6)
     private let notes: [(cell:Cell, text:String)] = [
         (Cell(x:4,z:14),"Waleed’s note: “It knocks three times. If it answers, leave the phone alone.”"),
-        (Cell(x:21,z:2),"Yamen’s message: “The boards by the dining room set it off. There’s a steel shelter in the guest room.”"),
-        (Cell(x:22,z:12),"Service log: “Phone line passes through the back wing. Restore the breaker, then get out.”")
+        (Cell(x:13,z:2),"Yamen’s message: “The loose boards set it off. There’s a steel shelter in the study.”"),
+        (Cell(x:13,z:12),"Service log: “Phone line passes through the back wing. Restore the breaker, then get out.”")
     ]
-    private let traps = [Cell(x:17,z:3),Cell(x:21,z:8),Cell(x:18,z:13)]
-    private let pipeCells = [Cell(x:4,z:11),Cell(x:19,z:2),Cell(x:24,z:7),Cell(x:22,z:13)]
+    private let traps = [Cell(x:11,z:4),Cell(x:12,z:8),Cell(x:8,z:13)]
+    private let pipeCells = [Cell(x:4,z:11),Cell(x:11,z:2),Cell(x:14,z:7),Cell(x:12,z:13)]
     private var pipeSources = [SCNAudioSource]()
     private var nextPipe: Float = 7
     private var nextTrap: Float = 0
@@ -123,6 +124,11 @@ final class GameController: UIViewController {
     private let introCaption = UILabel()
     private let introPhone = IntroPhoneView(frame:.zero)
     private var opening: OpeningScene?
+    private var reveal: SCNNode?
+    private var doorCameraStart = SCNVector3Zero
+    private var doorFacingStart: Float = 0
+    private var doorPitchStart: Float = 0
+    private var doorCue = 0
     private var pausedFrom = Phase.playing
     private var nextKnock: Float = 0
     private var distanceSinceStep: Float = 0
@@ -292,11 +298,15 @@ final class GameController: UIViewController {
         let g = SCNSphere(radius:r); g.segmentCount = 16; g.materials = [material(c,glow:glow)]; let n = SCNNode(geometry:g); n.position = p; parent.addChildNode(n); return n
     }
     private func buildWorld() {
-        world = SCNScene(); lamps = []; lightPanels = []; thermalScreens = []; fuseNodes = []; fridge = nil; world.background.contents = UIColor.black
+        world = SCNScene(); reveal = nil; lamps = []; lightPanels = []; thermalScreens = []; fuseNodes = []; fridge = nil; world.background.contents = UIColor.black
         world.fogColor = UIColor(red:0.025,green:0.03,blue:0.035,alpha:1); world.fogStartDistance = 12; world.fogEndDistance = 35
         let ambient = SCNNode(); ambient.light = SCNLight(); ambient.light?.type = .ambient; ambient.light?.color = UIColor(red:0.22,green:0.27,blue:0.36,alpha:1); ambient.light?.intensity = 240; world.rootNode.addChildNode(ambient)
         houseAmbient = ambient.light
         buildSurfaces()
+        let extensionRooms = OpeningScene()
+        extensionRooms.setLit(false)
+        opening = extensionRooms
+        world.rootNode.addChildNode(extensionRooms.root)
         buildDoors()
         addRoomLamp(at:point(Cell(x:3,z:13)))
         box(SCNVector3(1.68,0.45,0.73),point(Cell(x:4,z:13),y:0.30),UIColor(red:0.30,green:0.22,blue:0.16,alpha:1))
@@ -912,7 +922,7 @@ final class GameController: UIViewController {
     }
 
     @objc private func showHelp() {
-        let panel = UIAlertController(title:"HOW TO SURVIVE",message:"Left thumb: move. RUN toggles sprint. Drag the right side to look.\n\nFind three cyan fuses. USE the red fuse box, then the green exit.\n\nCALL WALEED rings his phone in another room. HANG UP before he traces you. SILENCE incoming calls and break line of sight before hiding.\n\nUse the steel shelter in the guest room when you can reach it safely. Some boards will give you away. Read notes for clues.\n\nContains sudden sounds and jumpscares.",preferredStyle:.alert)
+        let panel = UIAlertController(title:"HOW TO SURVIVE",message:"Left thumb: move. RUN toggles sprint. Drag the right side to look.\n\nFind three cyan fuses. USE the red fuse box, then the green exit.\n\nCALL WALEED rings his phone in another room. HANG UP before he traces you. SILENCE incoming calls and break line of sight before hiding.\n\nUse the steel shelter in the study when you can reach it safely. Some boards will give you away. Read notes for clues.\n\nContains sudden sounds and jumpscares.",preferredStyle:.alert)
         panel.addAction(UIAlertAction(title:"GOT IT",style:.default))
         present(panel,animated:true)
     }
@@ -1052,12 +1062,12 @@ final class GameController: UIViewController {
     }
 
     private func beginIntro() {
-        let room = OpeningScene()
-        opening = room
-        camera = room.camera
-        sceneView.scene = room.scene
-        sceneView.pointOfView = room.camera
-        sceneView.audioListener = room.camera
+        resetGame()
+        opening?.setLit(true)
+        houseAmbient?.intensity = 525
+        setRoomPower(660)
+        torch.light?.intensity = 0
+        enemy.isHidden = true
         phase = .intro
         introElapsed = 0
         introBeat = -1
@@ -1079,7 +1089,7 @@ final class GameController: UIViewController {
         let sitting = min(1,max(0,(introElapsed-13.0)/1.9))
         let eased = sitting*sitting*(3-2*sitting)
         let floor = OpeningLayout.upperFloor
-        camera.position = SCNVector3(-1.94+1.22*eased,floor+0.73+0.87*eased,4.85-1.20*eased)
+        camera.position = SCNVector3(OpeningLayout.worldX-1.94+1.22*eased,floor+0.73+0.87*eased,OpeningLayout.worldZ+4.85-1.20*eased)
         let glance = min(introElapsed/2.3,1)
         camera.eulerAngles = SCNVector3(-0.32+0.32*eased,-0.12+0.27*glance-0.15*eased,0.12*(1-eased))
         let cue: Int
@@ -1144,7 +1154,7 @@ final class GameController: UIViewController {
         players["line-static"]?.stop()
         phoneVoice.stopSpeaking(at:.immediate)
         let bed = OpeningLayout.bedside
-        camera.position = SCNVector3(bed.x,OpeningLayout.upperFloor+1.6,bed.z)
+        camera.position = SCNVector3(OpeningLayout.worldX+bed.x,OpeningLayout.upperFloor+1.6,OpeningLayout.worldZ+bed.z)
         camera.eulerAngles = SCNVector3Zero
         yaw = 0; pitch = 0; lookRoll = 0
         movement = .zero
@@ -1176,63 +1186,158 @@ final class GameController: UIViewController {
         let dz = (-cos(yaw)*forward-sin(yaw)*strafe)*speed*dt
         let previous = camera.position
         var p = previous
-        if OpeningLayout.walkable(x:p.x+dx,z:p.z) { p.x += dx }
-        if OpeningLayout.walkable(x:p.x,z:p.z+dz) { p.z += dz }
-        p.y = OpeningLayout.floorHeight(at:p.z)+1.60
+        if OpeningLayout.walkableInHouse(house,x:p.x+dx,z:p.z) { p.x += dx }
+        if OpeningLayout.walkableInHouse(house,x:p.x,z:p.z+dz) { p.z += dz }
+        p.y = OpeningLayout.heightInHouse(x:p.x,z:p.z)+1.60
         camera.position = p
         camera.eulerAngles = SCNVector3(pitch,yaw,0)
         let traveled = distance(previous,p)
-        let staircase = (OpeningLayout.stairEnd...0).contains(p.z)
+        let localZ = p.z-OpeningLayout.worldZ
+        let staircase = p.x < 0 && (OpeningLayout.stairEnd...0).contains(localZ)
         footsteps(distance:traveled,sprinting:runningHere,stairs:staircase)
         stamina = min(100,max(0,stamina+(runningHere && traveled > 0.002 ? -13 : 13)*dt))
         if running && stamina <= 2 { setRunning(false) }
         if elapsed >= nextKnock {
-            players["door-knock"]?.volume = staircase || p.z > 0 ? 0.53 : 0.91
+            players["door-knock"]?.volume = staircase || (p.x < 0 && localZ > 0) ? 0.53 : 0.91
             play("door-knock")
             nextKnock = elapsed+Float.random(in:4.7...6.4)
         }
-        if p.z > OpeningLayout.stairEnd {
+        if p.x < 0 && localZ > OpeningLayout.stairEnd {
             objective.text = "GO DOWNSTAIRS"
             hint.text = "FOLLOW THE STAIRS"
         } else {
             objective.text = "ANSWER THE FRONT DOOR"
-            hint.text = OpeningLayout.canOpenDoor(x:p.x,z:p.z) ? "TAP OPEN" : "FOLLOW THE KNOCKING"
+            hint.text = atFrontDoor ? "TAP OPEN" : "FOLLOW THE KNOCKING"
         }
-        use.isEnabled = OpeningLayout.canOpenDoor(x:p.x,z:p.z)
+        use.isEnabled = atFrontDoor
         use.alpha = use.isEnabled ? 1 : 0.46
     }
 
+    private var atFrontDoor: Bool {
+        OpeningLayout.canOpenDoor(x:camera.position.x-OpeningLayout.worldX,z:camera.position.z-OpeningLayout.worldZ)
+    }
+
     private func answerFrontDoor() {
-        guard OpeningLayout.canOpenDoor(x:camera.position.x,z:camera.position.z) else { return }
+        guard atFrontDoor else { return }
         phase = .openingDoor
         introElapsed = 0
+        doorCue = 0
+        doorCameraStart = camera.position
+        doorFacingStart = yaw
+        doorPitchStart = pitch
         controls.isHidden = true
         players["door-knock"]?.stop()
         players["drone"]?.stop()
-        play("door-latch")
-        opening?.openFrontDoor()
+        opening?.reachForKnob()
+    }
+
+    private func revealAtDoor() {
+        let figure = SCNNode()
+        figure.name = "Waleed at the door"
+        figure.position = SCNVector3(OpeningLayout.worldX+0.31,0,OpeningLayout.worldZ+OpeningLayout.frontDoorZ-0.91)
+        figure.eulerAngles.y = .pi
+        let coat = UIColor(red:0.12,green:0.14,blue:0.15,alpha:1)
+        let body = sphere(0.38,SCNVector3(0.0,1.33,0.0),coat,figure)
+        body.scale = SCNVector3(0.90,1.40,0.77)
+        for x in [Float(-0.18),0.18] {
+            roundedLimb(at:SCNVector3(x,0.49,0),length:0.97,radius:0.12,color:coat,parent:figure)
+        }
+        for x in [Float(-0.37),0.37] {
+            roundedLimb(at:SCNVector3(x,1.29,0),length:0.68,radius:0.092,color:coat,parent:figure)
+        }
+        let face = makeFace().head
+        face.position = SCNVector3(0,1.99,-0.01)
+        figure.addChildNode(face)
+        let porch = SCNLight()
+        porch.type = .omni
+        porch.color = UIColor(red:0.49,green:0.63,blue:0.85,alpha:1)
+        porch.intensity = 480
+        porch.attenuationEndDistance = 3
+        let illumination = SCNNode()
+        illumination.position = SCNVector3(-0.36,2.48,-0.81)
+        illumination.light = porch
+        figure.addChildNode(illumination)
+        world.rootNode.addChildNode(figure)
+        reveal = figure
     }
 
     private func doorTransition(dt:Float) {
         introElapsed += dt
-        if introElapsed >= 0.44 && introOverlay.isHidden {
+        let t = introElapsed
+        let doorwayZ = OpeningLayout.worldZ+OpeningLayout.frontDoorZ
+        if t < 1.58 {
+            let approach = min(1,t/0.55)
+            let goal = SCNVector3(OpeningLayout.worldX+0.41,1.57,doorwayZ+1.03)
+            camera.position = SCNVector3(doorCameraStart.x+(goal.x-doorCameraStart.x)*approach,
+                                         doorCameraStart.y+(goal.y-doorCameraStart.y)*approach,
+                                         doorCameraStart.z+(goal.z-doorCameraStart.z)*approach)
+            let turn = atan2(sin(doorFacingStart),cos(doorFacingStart))
+            camera.eulerAngles = SCNVector3(doorPitchStart+(-0.13-doorPitchStart)*approach,turn*(1-approach),0)
+            if t >= 0.68 && doorCue == 0 {
+                doorCue = 1
+                play("door-latch")
+                opening?.openFrontDoor()
+                revealAtDoor()
+            }
+            if t > 1.19 && doorCue == 1 {
+                doorCue = 2
+                reveal?.runAction(.moveBy(x:-0.10,y:0,z:0.89,duration:0.40))
+            }
+            return
+        }
+        if doorCue < 3 {
+            doorCue = 3
+            reveal?.removeFromParentNode()
+            reveal = nil
+            opening?.slamFrontDoor()
+            opening?.setLit(false)
+            setRoomPower(0)
+            houseAmbient?.intensity = 185
             introPhone.isHidden = true
             introCaption.text = nil
             introOverlay.backgroundColor = .black
             introOverlay.isHidden = false
             play("blackout")
+            UIImpactFeedbackGenerator(style:.heavy).impactOccurred()
         }
-        if introElapsed >= 2.0 { finishOpening() }
+        if t < 2.54 { return }
+        if doorCue == 3 {
+            doorCue = 4
+            introOverlay.isHidden = true
+            introOverlay.backgroundColor = .clear
+            opening?.pushUp(camera:camera)
+        }
+        let stand = min(1,max(0,(t-2.73)/1.50))
+        let eased = stand*stand*(3-2*stand)
+        let roll: Float = UIAccessibility.isReduceMotionEnabled ? 0 : 0.35
+        camera.position = SCNVector3(OpeningLayout.worldX+0.29,0.29+1.31*eased,doorwayZ+1.32)
+        camera.eulerAngles = SCNVector3(-0.22*(1-eased),-0.62-0.95*eased,roll*(1-eased))
+        torch.light?.intensity = CGFloat(eased)*flashlightIntensity
+        if t >= 4.28 { finishOpening() }
     }
 
     private func finishOpening() {
-        opening = nil
+        reveal?.removeFromParentNode()
+        reveal = nil
+        opening?.slamFrontDoor()
+        opening?.setLit(false)
+        setRoomPower(0)
+        houseAmbient?.intensity = 185
         introOverlay.backgroundColor = .clear
-        resetGame()
+        enemy.isHidden = false
+        camera.position = SCNVector3(OpeningLayout.worldX+0.29,1.60,OpeningLayout.worldZ+OpeningLayout.frontDoorZ+1.32)
+        yaw = -.pi/2; pitch = 0; lookRoll = 0
+        camera.eulerAngles = SCNVector3(0,yaw,0)
+        elapsed = 0
+        stamina = 100
+        movement = .zero
+        distanceSinceStep = 0
+        setRunning(false)
+        stick.reset()
         use.isEnabled = true
         use.alpha = 1
         beginPlaying()
-        tell("The lights are out. Find three fuses to restore power.",duration:7)
+        tell("Find three fuses. The hall is through the foyer doorway.",duration:8)
     }
 
     private func resetGame() {
@@ -1363,7 +1468,9 @@ final class GameController: UIViewController {
 
     @objc private func look(_ g:UIPanGestureRecognizer) {
         let d = g.translation(in:lookSurface); g.setTranslation(.zero,in:lookSurface); guard (phase == .playing || phase == .downstairs), !hidden else { return }
-        yaw -= Float(d.x)*0.005; pitch = min(0.9,max(-0.9,pitch-Float(d.y)*0.004))
+        let scale = traitCollection.userInterfaceIdiom == .pad ? Float(0.0036) : 0.0046
+        yaw -= Float(d.x)*scale
+        pitch = min(0.88,max(-0.88,pitch-Float(d.y)*scale*0.83))
     }
     private func distance(_ a:SCNVector3,_ b:SCNVector3) -> Float { hypot(a.x-b.x,a.z-b.z) }
     private func near(_ c:Cell,range:Float = 2.6) -> Bool { let p = point(c); return distance(camera.position,p) < range && house.visible(camera.position.x,camera.position.z,p.x,p.z) }
@@ -1377,7 +1484,10 @@ final class GameController: UIViewController {
         if hidden { hidden = false; tell("You step out. Listen before moving."); return }
         if let index = nearbyFuse() {
             collected.insert(index)
-            fuseNodes[index].isHidden = true
+            let node = fuseNodes[index]
+            let lift = SCNAction.moveBy(x:0,y:0.45,z:0,duration:0.22)
+            lift.timingMode = .easeOut
+            node.runAction(.sequence([.group([lift,.fadeOut(duration:0.22)]),.removeFromParentNode()]))
             play("pickup")
             tell("Fuse \(collected.count) / 3 collected.")
             return
@@ -1493,7 +1603,26 @@ final class GameController: UIViewController {
     private func seesPlayer(_ distance: Float) -> Bool {
         guard !hidden, distance < (flashlight ? 18 : 11) else { return false }
         let p = camera.position, e = enemy.position
-        return house.visible(e.x,e.z,p.x,p.z)
+        return hasSight(from:e,to:p)
+    }
+
+    private func hasSight(from a:SCNVector3,to b:SCNVector3) -> Bool {
+        if a.x >= 0 && b.x >= 0 { return house.visible(a.x,a.z,b.x,b.z) }
+        guard OpeningLayout.heightInHouse(x:b.x,z:b.z) < 0.12 else { return false }
+        return canTravel(from:a,to:b,radius:0)
+    }
+
+    private func canTravel(from a:SCNVector3,to b:SCNVector3,radius:Float) -> Bool {
+        if a.x >= 0.39 && b.x >= 0.39 {
+            return house.walkableBetween(a.x,a.z,b.x,b.z,radius:radius)
+        }
+        let steps = max(1,Int(ceil(distance(a,b)/0.10)))
+        for i in 0...steps {
+            let t = Float(i)/Float(steps)
+            let x = a.x+(b.x-a.x)*t, z = a.z+(b.z-a.z)*t
+            if !OpeningLayout.walkableInHouse(house,x:x,z:z,radius:radius) { return false }
+        }
+        return true
     }
 
     private func moveEnemy(toward destination: SCNVector3, speed: Float, dt: Float) -> Float {
@@ -1506,11 +1635,11 @@ final class GameController: UIViewController {
         let nx = position.x+vx*step
         let nz = position.z+vz*step
         var next = position
-        if house.walkable(nx,nz,radius:0.18) {
+        if OpeningLayout.walkableInHouse(house,x:nx,z:nz,radius:0.18) {
             next = SCNVector3(nx,position.y,nz)
         } else {
-            if house.walkable(nx,position.z,radius:0.18) { next.x = nx }
-            if house.walkable(next.x,nz,radius:0.18) { next.z = nz }
+            if OpeningLayout.walkableInHouse(house,x:nx,z:position.z,radius:0.18) { next.x = nx }
+            if OpeningLayout.walkableInHouse(house,x:next.x,z:nz,radius:0.18) { next.z = nz }
         }
         let traveled = distance(position,next)
         guard traveled > 0.001 else { return 0 }
@@ -1523,7 +1652,7 @@ final class GameController: UIViewController {
 
     private func updateEnemy(dt: Float, sprint: Bool, moving: Bool, traced: Bool) -> Bool {
         let p = camera.position
-        let cell = House.cell(p.x,p.z)
+        let cell = p.x < 0 ? House.foyerEntrance : House.cell(p.x,p.z)
         let separation = distance(p,enemy.position)
         let sight = seesPlayer(separation)
         let incoming: Bool
@@ -1575,7 +1704,7 @@ final class GameController: UIViewController {
 
         let e = enemy.position
         let dist = distance(e,p)
-        let close = !hidden && dist < 5.8 && house.visible(e.x,e.z,p.x,p.z)
+        let close = !hidden && dist < 5.8 && hasSight(from:e,to:p)
         enemyEyes.forEach { $0.isHidden = !close }
         if close {
             let facing = atan2(e.x-p.x,e.z-p.z)-enemy.eulerAngles.y
@@ -1583,7 +1712,7 @@ final class GameController: UIViewController {
         } else {
             enemyHead.eulerAngles.y = 0
         }
-        if enemyAwake && !hidden && house.canCatch(enemyX:e.x,enemyZ:e.z,playerX:p.x,playerZ:p.z) {
+        if enemyAwake && !hidden && dist <= 1.30 && hasSight(from:e,to:p) && canTravel(from:e,to:p,radius:0) {
             finish(escaped:false)
             return false
         }
@@ -1616,11 +1745,17 @@ final class GameController: UIViewController {
 
     private func advanceEnemy(visiblePlayer: SCNVector3?, speed: Float, dt: Float) -> Float {
         let e = enemy.position
-        if let player = visiblePlayer, house.walkableBetween(e.x,e.z,player.x,player.z,radius:0.18) {
+        if let player = visiblePlayer, canTravel(from:e,to:player,radius:0.18) {
             route.removeAll()
             routedTarget = nil
             routeTime = elapsed
             return moveEnemy(toward:player,speed:speed,dt:dt)
+        }
+        if e.x < 0 {
+            let threshold = SCNVector3(-0.29,0,OpeningLayout.portalWorldZ)
+            let target = OpeningLayout.portalWorldZ
+            let entry = abs(e.z-target) > 0.09 ? threshold : point(House.foyerEntrance)
+            return moveEnemy(toward:entry,speed:speed,dt:dt)
         }
         if routedTarget != enemyTarget, elapsed >= routeTime {
             // Finish the committed segment before turning, so corners stay clear.
@@ -1664,13 +1799,13 @@ final class GameController: UIViewController {
             let dz = (-cos(yaw)*movement.y-sin(yaw)*movement.x)*dt
             let previous = camera.position
             var p = previous
-            if house.walkable(p.x+dx,p.z) { p.x += dx }
-            if house.walkable(p.x,p.z+dz) { p.z += dz }
+            if OpeningLayout.walkableInHouse(house,x:p.x+dx,z:p.z) { p.x += dx }
+            if OpeningLayout.walkableInHouse(house,x:p.x,z:p.z+dz) { p.z += dz }
             let traveled = distance(previous,p)
             stepped = traveled > 0.002
             stepPhase += traveled*(sprint ? 4.5 : 5.1)
             let reduceMotion = UIAccessibility.isReduceMotionEnabled
-            let targetHeight: Float = 1.60 + (stepped && !reduceMotion ? sin(stepPhase)*(sprint ? 0.046 : 0.028) : 0)
+            let targetHeight: Float = OpeningLayout.heightInHouse(x:p.x,z:p.z)+1.60 + (stepped && !reduceMotion ? sin(stepPhase)*(sprint ? 0.046 : 0.028) : 0)
             p.y += (targetHeight-p.y)*min(1,dt*18)
             let tilt = reduceMotion ? 0 : -movement.x*0.010
             lookRoll += (tilt-lookRoll)*min(1,dt*9)

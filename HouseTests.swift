@@ -24,8 +24,10 @@ import Testing
 
     @Test func openingSceneHasStairsAndDoor() {
         let opening = OpeningScene()
-        #expect(opening.camera.camera != nil)
-        #expect(opening.scene.rootNode.childNodes.count > 50)
+        #expect(opening.root.childNodes.count > 50)
+        #expect(opening.root.position.x == OpeningLayout.worldX)
+        #expect(OpeningLayout.walkableInHouse(House(seed:0),x:0,z:OpeningLayout.portalWorldZ))
+        opening.reachForKnob()
         #expect(OpeningLayout.floorHeight(at:-3) < OpeningLayout.upperFloor)
         #expect(OpeningLayout.canOpenDoor(x:0,z:OpeningLayout.frontDoorZ+0.72))
         opening.openFrontDoor()

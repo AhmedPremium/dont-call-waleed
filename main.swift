@@ -33,8 +33,10 @@ check(House.reachedWaypoint(0), "Enemy must consume an already reached waypoint"
 let nearWallX = 7.8*House.tile
 check(house.canCatch(enemyX:nearWallX,enemyZ:2.25*House.tile,playerX:nearWallX,playerZ:2.75*House.tile), "Waleed should catch a reachable player beside the same wall")
 check(!house.canCatch(enemyX:7.88*House.tile,enemyZ:2.68*House.tile,playerX:8.12*House.tile,playerZ:3.12*House.tile), "Waleed must not catch the player diagonally through a wall")
-check(house.walkableBetween(3.5*House.tile,4.5*House.tile,3.5*House.tile,6.5*House.tile,radius:0.18), "An open doorway should allow a direct chase")
-check(!house.walkableBetween(4.5*House.tile,4.5*House.tile,4.5*House.tile,6.5*House.tile,radius:0.18), "A blocked doorway approach must use the patrol grid")
+let utilityDoor = house.doorways.first { $0.cell.z == 5 && $0.cell.x < 8 }!.cell
+let hallX = (Float(utilityDoor.x)+0.5)*House.tile
+check(house.walkableBetween(hallX,4.5*House.tile,hallX,6.5*House.tile,radius:0.18), "An open doorway should allow a direct chase")
+check(!house.walkableBetween(6.5*House.tile,4.5*House.tile,6.5*House.tile,6.5*House.tile,radius:0.18), "A blocked doorway approach must use the patrol grid")
 let search = house.searchCells(near:House.spawn)
 check(search.count == 3 && Set(search).count == 3, "Search should cover distinct reachable cells")
 check(search.allSatisfy { (2...4).contains(house.path(from:House.spawn,to:$0).count) }, "Search should stay around the last known position")
@@ -46,8 +48,8 @@ for seed in 0..<32 {
     let layout = House(seed:UInt64(seed))
     maps.insert(layout.rows.map { String($0) }.joined())
     fuseSets.insert(layout.fuses)
-    check(layout.rows.allSatisfy { $0.count == 27 }, "New wing has malformed rows")
-    check(layout.doorways.count == 12, "The intended twelve doorways must have doors")
+    check(layout.rows.allSatisfy { $0.count == 17 }, "Compact house has malformed rows")
+    check(layout.doorways.count == 7, "Seven interior doorways must have doors")
     for doorway in layout.doorways {
         let p = doorway.cell
         check(layout.path(from:House.spawn,to:p).last == p, "A door is outside the reachable floor")
@@ -61,7 +63,14 @@ for seed in 0..<32 {
                                playerX:x+0.55,playerZ:z+House.fuseTableShift-0.18),
               "Waleed cannot grab through the fuse table")
     }
-    for cell in layout.fuses + layout.patrol + House.closets + [House.exit,House.panel] {
+    for i in 0...30 {
+        let x = -1+Float(i)*0.10
+        check(OpeningLayout.walkableInHouse(layout,x:x,z:OpeningLayout.portalWorldZ),
+              "Foyer must remain connected to downstairs map")
+    }
+    check(!OpeningLayout.walkableInHouse(layout,x:-0.06,z:OpeningLayout.portalWorldZ+1.3),
+          "Foyer walls must remain solid away from the opening")
+    for cell in layout.fuses + layout.patrol + House.closets + [House.exit,House.panel,House.foyerEntrance] {
         let route = layout.path(from:House.spawn,to:cell)
         check(route.last == cell, "Seed \(seed) has an unreachable objective or patrol point")
         for (start,end) in zip([House.spawn]+route,route) {
