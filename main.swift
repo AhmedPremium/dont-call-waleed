@@ -50,6 +50,10 @@ for seed in 0..<32 {
     fuseSets.insert(layout.fuses)
     check(layout.rows.allSatisfy { $0.count == 17 }, "Compact house has malformed rows")
     check(layout.doorways.count == 7, "Seven interior doorways must have doors")
+    for x in (House.sunroomWindow.x-1)...(House.sunroomWindow.x+1) {
+        check(!layout.open(Cell(x:x,z:House.sunroomWindow.z-1)),
+              "The window and curtains must never overlap an interior doorway")
+    }
     for doorway in layout.doorways {
         let p = doorway.cell
         check(layout.path(from:House.spawn,to:p).last == p, "A door is outside the reachable floor")
@@ -110,3 +114,7 @@ for i in 0...140 {
 }
 check(lastHeight == 0,"Player must reach the downstairs floor")
 print("Validated the prologue route from upstairs bed to downstairs front door.")
+
+check(!House.canNotice(range:1,forward:1,flashlight:true,crouched:true), "Crouching prevents Waleed detecting the player")
+check(!House.canNotice(range:4,forward:-4,flashlight:false,crouched:false), "Patrol vision should not detect players behind Waleed")
+check(House.canNotice(range:4,forward:4,flashlight:false,crouched:false), "Visible standing players should still be detected")

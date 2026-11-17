@@ -26,6 +26,7 @@ struct House {
     static let spawn = Cell(x: 2, z: 14)
     static let enemy = Cell(x: 14, z: 2)
     static let foyerEntrance = Cell(x:0,z:13)
+    static let sunroomWindow = Cell(x:14,z:11)
     static let panel = Cell(x: 14, z: 14)
     static let exit = Cell(x: 7, z: 15)
     static let closets = [Cell(x: 1, z: 14), Cell(x: 1, z: 3), Cell(x: 15, z: 9)]
@@ -135,6 +136,11 @@ struct House {
         guard cell.x == next.x else { return true }
         // The fuse table sits between its tile center and the next one to the north.
         return !fuseCells.contains(cell.z > next.z ? cell : next)
+    }
+
+    static func canNotice(range:Float,forward:Float,flashlight:Bool,crouched:Bool) -> Bool {
+        guard !crouched, range < (flashlight ? 8.4 : 5.8) else { return false }
+        return range < 1.55 || forward >= range*0.63
     }
 
     static func reachedWaypoint(_ remaining: Float) -> Bool { remaining <= 0.012 }
