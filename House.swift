@@ -29,16 +29,26 @@ struct House {
     static let sunroomWindow = Cell(x:14,z:11)
     static let panel = Cell(x: 14, z: 14)
     static let fridgeStop = Cell(x:12,z:1)
-    static let sofaStop = Cell(x:5,z:6)
+    static let loungeTV = Cell(x:6,z:6)
+    static let sofaStop = Cell(x:6,z:7)
+    static let laundryWasher = Cell(x:6,z:11)
+    static let studyShelves = Cell(x:14,z:6)
     static let listeningStop = Cell(x:8,z:8)
     static let exit = Cell(x: 7, z: 15)
     static let closets = [Cell(x: 1, z: 14), Cell(x: 1, z: 3), Cell(x: 15, z: 9)]
+    private static let cupboardGroups = [
+        [Cell(x:2,z:2), Cell(x:5,z:3), Cell(x:13,z:4)],
+        [Cell(x:2,z:7), Cell(x:13,z:8), Cell(x:14,z:7)],
+        [Cell(x:3,z:12), Cell(x:12,z:13), Cell(x:10,z:14)]
+    ]
+    static let cupboards = cupboardGroups.flatMap { $0 }
+    static let cupboardOffset: Float = -0.78
+    static let cupboardWidth: Float = 1.04
+    static let cupboardDepth: Float = 0.46
     let rows: [[Character]]
     let fuses: [Cell]
     let patrol: [Cell]
-    static let fuseTableShift: Float = -0.59
     private let furniture: [Footprint]
-    private let fuseCells: Set<Cell>
 
     private struct Footprint {
         let x: Float
@@ -55,6 +65,12 @@ struct House {
 
         func blocks(_ x:Float,_ z:Float,_ radius:Float) -> Bool {
             abs(self.x-x) < halfWidth+radius && abs(self.z-z) < halfDepth+radius
+        }
+
+        func blocksStep(x ax:Float,z az:Float,toX bx:Float,z bz:Float,radius:Float) -> Bool {
+            let nearestX = min(max(x,min(ax,bx)),max(ax,bx))
+            let nearestZ = min(max(z,min(az,bz)),max(az,bz))
+            return blocks(nearestX,nearestZ,radius)
         }
     }
 
@@ -74,21 +90,22 @@ struct House {
             layout[wall][3+select(2)] = "."
             layout[wall][11+select(2)] = "."
         }
-        let alternatives = [
-            [Cell(x:2,z:2), Cell(x:5,z:3), Cell(x:13,z:4)],
-            [Cell(x:2,z:7), Cell(x:12,z:8), Cell(x:14,z:7)],
-            [Cell(x:3,z:12), Cell(x:12,z:13), Cell(x:10,z:14)]
-        ]
         rows = layout
-        let selectedFuses = alternatives.map { $0[select($0.count)] }
-        fuses = selectedFuses
-        fuseCells = Set(selectedFuses)
+        fuses = Self.cupboardGroups.map { $0[select($0.count)] }
         let kitchen = Cell(x:12,z:1)
         let counters = [-2,-1,1,2].map {
             Footprint(kitchen,Float($0)*1.18,-0.87,0.59,0.325)
         }
-        let fuseTables = selectedFuses.map { Footprint($0,0,Self.fuseTableShift-0.18,0.46,0.32) }
-        furniture = counters + fuseTables + [Footprint(kitchen,0,-0.93,0.52,0.195)]
+        let cabinets = Self.cupboards.map {
+            Footprint($0,0,Self.cupboardOffset,Self.cupboardWidth/2,Self.cupboardDepth/2)
+        }
+        furniture = counters + cabinets + [
+            Footprint(kitchen,0,-0.93,0.52,0.195),
+            Footprint(Self.loungeTV,0,-0.79,1.07,0.305),
+            Footprint(Self.sofaStop,0,0.73,1.29,0.455),
+            Footprint(Self.laundryWasher,0,-0.88,0.60,0.24),
+            Footprint(Self.studyShelves,0,-0.92,0.89,0.215)
+        ]
         patrol = [Self.enemy,Self.fridgeStop,Cell(x:2,z:2),Self.sofaStop,
                   Self.listeningStop,Cell(x:14,z:14),Cell(x:3,z:13)]
     }
@@ -142,9 +159,9 @@ struct House {
         return []
     }
     private func clearStep(from cell:Cell,to next:Cell) -> Bool {
-        guard cell.x == next.x else { return true }
-        // The fuse table sits between its tile center and the next one to the north.
-        return !fuseCells.contains(cell.z > next.z ? cell : next)
+        let x = (Float(cell.x)+0.5)*Self.tile, z = (Float(cell.z)+0.5)*Self.tile
+        let nextX = (Float(next.x)+0.5)*Self.tile, nextZ = (Float(next.z)+0.5)*Self.tile
+        return !furniture.contains { $0.blocksStep(x:x,z:z,toX:nextX,z:nextZ,radius:0.18) }
     }
 
     static func canNotice(range:Float,forward:Float,flashlight:Bool,crouched:Bool) -> Bool {
@@ -226,6 +243,17 @@ enum OpeningLayout {
 
     static func canOpenDoor(x:Float,z:Float) -> Bool {
         abs(x) < 0.95 && z < frontDoorZ+1.27 && z >= frontDoorZ
+    }
+}
+
+enum EscapeSequence {
+    enum Beat: Int, CaseIterable { case approach, stepOut, doorShuts, knocks, call, blackout, results }
+
+    // Times also define the intervals used by the first-person camera moves.
+    static let cues: [Float] = [0,1.0,3.65,4.90,6.65,9.35,10.15]
+
+    static func beat(at elapsed:Float) -> Beat {
+        Beat.allCases.last { elapsed >= cues[$0.rawValue] } ?? .approach
     }
 }
 

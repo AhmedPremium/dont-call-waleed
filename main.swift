@@ -58,14 +58,20 @@ for seed in 0..<32 {
         let p = doorway.cell
         check(layout.path(from:House.spawn,to:p).last == p, "A door is outside the reachable floor")
     }
-    for fuse in layout.fuses {
-        let x = (Float(fuse.x)+0.5)*House.tile
-        let z = (Float(fuse.z)+0.5)*House.tile
-        check(!layout.walkable(x,z+House.fuseTableShift-0.18),"Fuse table must block movement")
-        check(layout.walkable(x,z),"A player must be able to reach the fuse table")
-        check(!layout.canCatch(enemyX:x-0.55,enemyZ:z+House.fuseTableShift-0.18,
-                               playerX:x+0.55,playerZ:z+House.fuseTableShift-0.18),
-              "Waleed cannot grab through the fuse table")
+    check(Set(layout.fuses).count == 3 && layout.fuses.allSatisfy(House.cupboards.contains),
+          "Exactly three cupboards must contain a fuse")
+    for cupboard in House.cupboards {
+        let x = (Float(cupboard.x)+0.5)*House.tile
+        let z = (Float(cupboard.z)+0.5)*House.tile
+        check(!layout.walkable(x,z+House.cupboardOffset),"Cupboards must block movement")
+        check(layout.walkable(x,z),"A player must be able to stand at the front of every cupboard")
+        check(!layout.canCatch(enemyX:x-0.55,enemyZ:z+House.cupboardOffset,
+                               playerX:x+0.55,playerZ:z+House.cupboardOffset),
+              "Waleed cannot grab through a cupboard")
+    }
+    for fixture in [House.loungeTV,House.laundryWasher,House.studyShelves] {
+        check(!layout.open(Cell(x:fixture.x,z:fixture.z-1)),
+              "Wall furniture must stay away from a doorway when layouts change")
     }
     for i in 0...30 {
         let x = -1+Float(i)*0.10
@@ -74,7 +80,7 @@ for seed in 0..<32 {
     }
     check(!OpeningLayout.walkableInHouse(layout,x:-0.06,z:OpeningLayout.portalWorldZ+1.3),
           "Foyer walls must remain solid away from the opening")
-    for cell in layout.fuses + layout.patrol + House.closets + [House.exit,House.panel,House.foyerEntrance] {
+    for cell in House.cupboards + layout.patrol + House.closets + [House.exit,House.panel,House.foyerEntrance] {
         let route = layout.path(from:House.spawn,to:cell)
         check(route.last == cell, "Seed \(seed) has an unreachable objective or patrol point")
         for (start,end) in zip([House.spawn]+route,route) {
@@ -145,3 +151,9 @@ for stop in [House.fridgeStop,House.listeningStop,House.sofaStop] {
     check(retryLayout.patrol.contains(stop), "Patrol must visit each activity")
 }
 print("Validated a distinct new layout and all three patrol stops.")
+
+for (beat,time) in zip(EscapeSequence.Beat.allCases,EscapeSequence.cues) {
+    check(EscapeSequence.beat(at:time) == beat,"Ending must play its cues in order")
+}
+check(EscapeSequence.beat(at:20) == .results,"Ending must settle at the results screen")
+print("Validated the escape cutscene cue order.")

@@ -108,6 +108,14 @@ final class OpeningScene {
 
     private func stairs() {
         let length = -OpeningLayout.stairEnd
+        let roofHeight = OpeningLayout.upperFloor+2.57
+        let foyerCeiling: Float = 2.74
+        block(2.38,0.12,length+0.16,0,roofHeight+0.06,-length/2,pale)
+            .name = "Stairwell ceiling"
+        let closure = block(2.26,roofHeight-foyerCeiling,0.15,0,
+                            (roofHeight+foyerCeiling)/2,OpeningLayout.stairEnd,pale)
+        closure.name = "Stairwell end wall"
+        block(2.26,0.18,0.16,0,foyerCeiling-0.07,OpeningLayout.stairEnd,timber,finish:oak)
         let steps = 15
         let run = length/Float(steps)
         let drop = OpeningLayout.upperFloor/Float(steps)
@@ -118,7 +126,7 @@ final class OpeningScene {
             block(2.10,drop-0.041,0.055,0,y-(drop+0.039)/2,z-run/2+0.024,pale)
         }
         for side in [Float(-1),1] {
-            block(0.13,5.34,length,side*1.12,2.67,-length/2,pale)
+            block(0.13,roofHeight,length+0.04,side*1.12,roofHeight/2,-length/2,pale)
             for i in 0..<8 {
                 let z = -0.26-Float(i)*0.70
                 let y = OpeningLayout.floorHeight(at:z)

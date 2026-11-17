@@ -1,7 +1,7 @@
 import UIKit
 
 final class IntroPhoneView: UIView {
-    enum Screen { case lock, home, recents, contact, dialing, connected, lost }
+    enum Screen { case lock, home, recents, contact, dialing, connected, lost, ending }
     var screen = Screen.lock { didSet { setNeedsDisplay() } }
 
     private let green = UIColor(red:0.15,green:0.74,blue:0.42,alpha:1)
@@ -67,6 +67,12 @@ final class IntroPhoneView: UIView {
             symbol("speaker.wave.2.fill",43,177,16,.white)
             symbol("mic.slash.fill",114,177,16,.white)
             button("phone.down.fill",x:70,y:221,color:UIColor(red:0.88,green:0.22,blue:0.26,alpha:1))
+        case .ending:
+            text("INCOMING CALL",27,54,120,11,.lightGray,centered:true,weight:.semibold)
+            symbol("phone.arrow.down.left",75,88,24,green)
+            text("Yamen",28,117,118,27,.white,centered:true,weight:.semibold)
+            text("Your own number",27,155,120,12,.lightGray,centered:true)
+            button("phone.fill",x:70,y:221,color:green)
         }
         fill(64,296,46,3,1.5,UIColor(white:0.92,alpha:0.8))
         ctx.restoreGState()

@@ -20,12 +20,20 @@ import Testing
         #expect(window?.geometry?.firstMaterial?.diffuse.contents != nil)
         let fuse = root?.childNode(withName:"Glass safety fuse",recursively:true)
         #expect((fuse?.childNodes.count ?? 0) > 8)
+        let cupboards = root?.childNodes.filter { $0.name == "Searchable cupboard" } ?? []
+        #expect(cupboards.count == 9)
+        let storedFuses = cupboards.compactMap { $0.childNode(withName:"Glass safety fuse",recursively:true) }
+        #expect(storedFuses.count == 3)
+        #expect(storedFuses.allSatisfy(\.isHidden))
+        #expect(root?.childNode(withName:"Exit door hinge",recursively:true) != nil)
     }
 
     @Test func openingSceneHasStairsAndDoor() {
         let opening = OpeningScene()
         #expect(opening.root.childNodes.count > 50)
         #expect(opening.root.position.x == OpeningLayout.worldX)
+        #expect(opening.root.childNode(withName:"Stairwell ceiling",recursively:false) != nil)
+        #expect(opening.root.childNode(withName:"Stairwell end wall",recursively:false) != nil)
         #expect(OpeningLayout.walkableInHouse(House(seed:0),x:0,z:OpeningLayout.portalWorldZ))
         opening.reachForKnob()
         #expect(OpeningLayout.floorHeight(at:-3) < OpeningLayout.upperFloor)
