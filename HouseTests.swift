@@ -1,3 +1,4 @@
+import SceneKit
 import Testing
 @testable import DontCallWaleed
 @MainActor struct HouseTests {
@@ -11,6 +12,14 @@ import Testing
         let controller = GameController()
         controller.loadViewIfNeeded()
         #expect(controller.isViewLoaded)
+        let renderer = controller.view.subviews.compactMap { $0 as? SCNView }.first
+        let root = renderer?.scene?.rootNode
+        let face = root?.childNode(withName:"Waleed sculpted face",recursively:true)
+        #expect(face?.geometry?.sources(for:.vertex).first?.vectorCount == 252)
+        let window = root?.childNode(withName:"Rain window",recursively:true)
+        #expect(window?.geometry?.firstMaterial?.diffuse.contents != nil)
+        let fuse = root?.childNode(withName:"Glass safety fuse",recursively:true)
+        #expect((fuse?.childNodes.count ?? 0) > 8)
     }
 
     @Test func exteriorIsSolid() { #expect(!House(seed:0).walkable(0,0)) }

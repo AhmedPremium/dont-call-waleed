@@ -52,9 +52,26 @@ for seed in 0..<32 {
         let p = doorway.cell
         check(layout.path(from:House.spawn,to:p).last == p, "A door is outside the reachable floor")
     }
-    for cell in layout.fuses + layout.patrol + House.closets + [House.exit,House.panel] {
-        check(layout.path(from:House.spawn,to:cell).last == cell, "Seed \(seed) has an unreachable objective or patrol point")
+    for fuse in layout.fuses {
+        let x = (Float(fuse.x)+0.5)*House.tile
+        let z = (Float(fuse.z)+0.5)*House.tile
+        check(!layout.walkable(x,z+House.fuseTableShift-0.18),"Fuse table must block movement")
+        check(layout.walkable(x,z),"A player must be able to reach the fuse table")
+        check(!layout.canCatch(enemyX:x-0.55,enemyZ:z+House.fuseTableShift-0.18,
+                               playerX:x+0.55,playerZ:z+House.fuseTableShift-0.18),
+              "Waleed cannot grab through the fuse table")
     }
+    for cell in layout.fuses + layout.patrol + House.closets + [House.exit,House.panel] {
+        let route = layout.path(from:House.spawn,to:cell)
+        check(route.last == cell, "Seed \(seed) has an unreachable objective or patrol point")
+        for (start,end) in zip([House.spawn]+route,route) {
+            let ax = (Float(start.x)+0.5)*House.tile, az = (Float(start.z)+0.5)*House.tile
+            let bx = (Float(end.x)+0.5)*House.tile, bz = (Float(end.z)+0.5)*House.tile
+            check(layout.walkableBetween(ax,az,bx,bz,radius:0.18), "Patrol path intersects a furnishing")
+        }
+    }
+    check(!layout.walkable(12.5*House.tile,1.5*House.tile-0.93),"Fridge must block movement")
+    check(layout.walkable(12.5*House.tile,1.5*House.tile),"Kitchen walkway must stay open")
     for z in layout.rows.indices {
         for x in layout.rows[z].indices {
             let cell = Cell(x:x,z:z)

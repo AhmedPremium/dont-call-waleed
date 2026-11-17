@@ -12,8 +12,8 @@ settings:
     CODE_SIGNING_REQUIRED: "NO"
     CODE_SIGNING_ALLOWED: "NO"
     CODE_SIGN_IDENTITY: ""
-    MARKETING_VERSION: "0.3.3"
-    CURRENT_PROJECT_VERSION: "6"
+    MARKETING_VERSION: "0.3.4"
+    CURRENT_PROJECT_VERSION: "7"
 targets:
   DontCallWaleed:
     type: application
@@ -31,6 +31,8 @@ targets:
       - path: ContentView.swift
       - path: House.swift
       - path: GameController.swift
+      - path: HouseMaterials.swift
+      - path: WaleedMesh.swift
       - path: IntroPhoneView.swift
       - path: Resources
       - path: Artwork-Credit.txt

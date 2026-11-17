@@ -31,6 +31,27 @@ struct House {
     let rows: [[Character]]
     let fuses: [Cell]
     let patrol: [Cell]
+    static let fuseTableShift: Float = -0.59
+    private let furniture: [Footprint]
+    private let fuseCells: Set<Cell>
+
+    private struct Footprint {
+        let x: Float
+        let z: Float
+        let halfWidth: Float
+        let halfDepth: Float
+
+        init(_ cell:Cell,_ xOffset:Float,_ zOffset:Float,_ halfWidth:Float,_ halfDepth:Float) {
+            x = (Float(cell.x)+0.5)*House.tile+xOffset
+            z = (Float(cell.z)+0.5)*House.tile+zOffset
+            self.halfWidth = halfWidth
+            self.halfDepth = halfDepth
+        }
+
+        func blocks(_ x:Float,_ z:Float,_ radius:Float) -> Bool {
+            abs(self.x-x) < halfWidth+radius && abs(self.z-z) < halfDepth+radius
+        }
+    }
 
     init(seed: UInt64 = UInt64.random(in:UInt64.min...UInt64.max)) {
         var state = seed
@@ -56,11 +77,19 @@ struct House {
         }
         let alternatives = [
             [Cell(x:2,z:2), Cell(x:22,z:3), Cell(x:13,z:4)],
-            [Cell(x:23,z:8), Cell(x:19,z:7), Cell(x:24,z:6)],
+            [Cell(x:23,z:8), Cell(x:19,z:7), Cell(x:23,z:6)],
             [Cell(x:3,z:12), Cell(x:12,z:13), Cell(x:20,z:14)]
         ]
         rows = layout
-        fuses = alternatives.map { $0[select($0.count)] }
+        let selectedFuses = alternatives.map { $0[select($0.count)] }
+        fuses = selectedFuses
+        fuseCells = Set(selectedFuses)
+        let kitchen = Cell(x:12,z:1)
+        let counters = [-2,-1,1,2].map {
+            Footprint(kitchen,Float($0)*1.18,-0.87,0.59,0.325)
+        }
+        let fuseTables = selectedFuses.map { Footprint($0,0,Self.fuseTableShift-0.18,0.46,0.32) }
+        furniture = counters + fuseTables + [Footprint(kitchen,0,-0.93,0.52,0.195)]
         patrol = [Self.enemy,Cell(x:23,z:3),Cell(x:2,z:2),Cell(x:2,z:8),
                   Cell(x:21,z:8),Cell(x:23,z:13),Cell(x:14,z:14),Cell(x:3,z:13)]
     }
@@ -85,14 +114,17 @@ struct House {
     }
     static func cell(_ x: Float, _ z: Float) -> Cell { Cell(x:Int(floor(x/tile)),z:Int(floor(z/tile))) }
     func walkable(_ x: Float, _ z: Float, radius: Float = 0.25) -> Bool {
-        [-radius,radius].allSatisfy { dx in [-radius,radius].allSatisfy { dz in open(Self.cell(x+dx,z+dz)) } }
+        guard [-radius,radius].allSatisfy({ dx in
+            [-radius,radius].allSatisfy { dz in open(Self.cell(x+dx,z+dz)) }
+        }) else { return false }
+        return !furniture.contains { $0.blocks(x,z,radius) }
     }
     func path(from: Cell, to: Cell) -> [Cell] {
         guard open(from),open(to),from != to else { return [] }
         var queue = [from], seen: Set<Cell> = [from], previous: [Cell:Cell] = [:], index = 0
         while index < queue.count {
             let c = queue[index]; index += 1
-            for n in [Cell(x:c.x+1,z:c.z),Cell(x:c.x-1,z:c.z),Cell(x:c.x,z:c.z+1),Cell(x:c.x,z:c.z-1)] where open(n) && !seen.contains(n) {
+            for n in [Cell(x:c.x+1,z:c.z),Cell(x:c.x-1,z:c.z),Cell(x:c.x,z:c.z+1),Cell(x:c.x,z:c.z-1)] where open(n) && !seen.contains(n) && clearStep(from:c,to:n) {
                 seen.insert(n); previous[n] = c
                 if n == to {
                     var result = [n], current = n
@@ -104,6 +136,12 @@ struct House {
         }
         return []
     }
+    private func clearStep(from cell:Cell,to next:Cell) -> Bool {
+        guard cell.x == next.x else { return true }
+        // The fuse table sits between its tile center and the next one to the north.
+        return !fuseCells.contains(cell.z > next.z ? cell : next)
+    }
+
     static func reachedWaypoint(_ remaining: Float) -> Bool { remaining <= 0.012 }
 
     func searchCells(near origin: Cell) -> [Cell] {
@@ -120,7 +158,7 @@ struct House {
 
     func canCatch(enemyX: Float, enemyZ: Float, playerX: Float, playerZ: Float) -> Bool {
         let close = hypot(playerX-enemyX,playerZ-enemyZ) <= 1.30
-        return close && visible(enemyX,enemyZ,playerX,playerZ)
+        return close && walkableBetween(enemyX,enemyZ,playerX,playerZ,radius:0)
     }
 
     func walkableBetween(_ ax: Float,_ az: Float,_ bx: Float,_ bz: Float,radius: Float) -> Bool {
