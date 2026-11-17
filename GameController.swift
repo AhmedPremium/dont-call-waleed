@@ -36,16 +36,36 @@ final class GameController: UIViewController {
 
     private let flashlightIntensity: CGFloat = 1100
     private var house = House()
-    private let rooms: [(name: String, landmark: Cell, phone: Cell)] = [
-        ("BEDROOM", Cell(x: 4, z: 1), Cell(x: 4, z: 2)),
-        ("KITCHEN", Cell(x: 12, z: 1), Cell(x: 12, z: 2)),
-        ("LOUNGE", Cell(x: 4, z: 6), Cell(x: 4, z: 7)),
-        ("STUDY", Cell(x: 12, z: 6), Cell(x: 12, z: 7)),
-        ("LAUNDRY", Cell(x: 4, z: 11), Cell(x: 4, z: 12)),
-        ("WORKSHOP", Cell(x: 12, z: 11), Cell(x: 12, z: 12)),
-        ("DINING ROOM", Cell(x: 21, z: 1), Cell(x: 21, z: 2)),
-        ("GUEST ROOM", Cell(x: 21, z: 6), Cell(x: 21, z: 7)),
-        ("SUNROOM", Cell(x: 21, z: 11), Cell(x: 21, z: 12))
+    private enum RoomKind: String {
+        case bedroom = "BEDROOM", kitchen = "KITCHEN", lounge = "LOUNGE", study = "STUDY"
+        case laundry = "LAUNDRY", workshop = "WORKSHOP", dining = "DINING ROOM"
+        case guest = "GUEST ROOM", sunroom = "SUNROOM"
+
+        var rugColor: UIColor {
+            switch self {
+            case .bedroom: UIColor(red:0.23,green:0.08,blue:0.10,alpha:1)
+            case .kitchen: UIColor(red:0.14,green:0.24,blue:0.21,alpha:1)
+            case .lounge: UIColor(red:0.12,green:0.17,blue:0.26,alpha:1)
+            case .study: UIColor(red:0.23,green:0.17,blue:0.08,alpha:1)
+            case .laundry: UIColor(red:0.14,green:0.23,blue:0.27,alpha:1)
+            case .workshop: UIColor(red:0.27,green:0.14,blue:0.07,alpha:1)
+            case .dining: UIColor(red:0.29,green:0.18,blue:0.16,alpha:1)
+            case .guest: UIColor(red:0.16,green:0.24,blue:0.20,alpha:1)
+            case .sunroom: UIColor(red:0.20,green:0.23,blue:0.30,alpha:1)
+            }
+        }
+    }
+
+    private let rooms: [(kind: RoomKind, landmark: Cell, phone: Cell)] = [
+        (.bedroom, Cell(x:4,z:1), Cell(x:4,z:2)),
+        (.kitchen, Cell(x:12,z:1), Cell(x:12,z:2)),
+        (.lounge, Cell(x:4,z:6), Cell(x:4,z:7)),
+        (.study, Cell(x:12,z:6), Cell(x:12,z:7)),
+        (.laundry, Cell(x:4,z:11), Cell(x:4,z:12)),
+        (.workshop, Cell(x:12,z:11), Cell(x:12,z:12)),
+        (.dining, Cell(x:21,z:1), Cell(x:21,z:2)),
+        (.guest, Cell(x:21,z:6), Cell(x:21,z:7)),
+        (.sunroom, Cell(x:21,z:11), Cell(x:21,z:12))
     ]
     private var phase = Phase.title
     private let sceneView = SCNView()
@@ -253,18 +273,10 @@ final class GameController: UIViewController {
         box(SCNVector3(1.68,0.45,0.73),point(Cell(x:4,z:13),y:0.30),UIColor(red:0.30,green:0.22,blue:0.16,alpha:1))
         box(SCNVector3(1.62,0.13,0.69),point(Cell(x:4,z:13),y:0.58),UIColor(red:0.37,green:0.45,blue:0.39,alpha:1))
         box(SCNVector3(1.62,0.51,0.16),SCNVector3(point(Cell(x:4,z:13)).x,0.68,point(Cell(x:4,z:13)).z-0.31),UIColor(red:0.37,green:0.45,blue:0.39,alpha:1))
-        let rugColors: [UIColor] = [
-            UIColor(red:0.23,green:0.08,blue:0.10,alpha:1),
-            UIColor(red:0.14,green:0.24,blue:0.21,alpha:1),
-            UIColor(red:0.12,green:0.17,blue:0.26,alpha:1),
-            UIColor(red:0.23,green:0.17,blue:0.08,alpha:1),
-            UIColor(red:0.14,green:0.23,blue:0.27,alpha:1),
-            UIColor(red:0.27,green:0.14,blue:0.07,alpha:1)
-        ]
-        for (index, room) in rooms.enumerated() {
+        for room in rooms {
             let p = point(room.phone)
-            box(SCNVector3(2.8,0.015,3.8),SCNVector3(p.x,0.02,p.z),rugColors[index])
-            furnishRoom(index, at: point(room.landmark))
+            box(SCNVector3(2.8,0.015,3.8),SCNVector3(p.x,0.02,p.z),room.kind.rugColor)
+            furnishRoom(room.kind, at: point(room.landmark))
             addRoomLamp(at:p)
         }
         buildSurvivalProps()
@@ -437,16 +449,16 @@ final class GameController: UIViewController {
         }
     }
 
-    private func furnishRoom(_ index: Int, at p: SCNVector3) {
+    private func furnishRoom(_ kind: RoomKind, at p: SCNVector3) {
         let wall = p.z - 1.02
         let darkMetal = UIColor(white:0.15,alpha:1)
         let enamel = UIColor(red:0.64,green:0.69,blue:0.62,alpha:1)
-        switch index {
-        case 0: // Bedroom: crooked headboard, mattress and pillow.
+        switch kind {
+        case .bedroom: // Bedroom: crooked headboard, mattress and pillow.
             box(SCNVector3(1.7,1.12,0.18),SCNVector3(p.x,0.58,wall),UIColor(red:0.27,green:0.12,blue:0.08,alpha:1))
             box(SCNVector3(1.45,0.28,0.65),SCNVector3(p.x,0.36,wall+0.31),UIColor(red:0.28,green:0.09,blue:0.11,alpha:1))
             box(SCNVector3(0.58,0.14,0.29),SCNVector3(p.x+0.26,0.57,wall+0.20),UIColor(white:0.60,alpha:1))
-        case 1: // Kitchen: two-door fridge with an audible compressor.
+        case .kitchen: // Kitchen: two-door fridge with an audible compressor.
             buildKitchen(at:p)
             fridge = box(SCNVector3(1.04,2.26,0.39),SCNVector3(p.x,1.13,wall+0.09),enamel)
             box(SCNVector3(1.02,0.045,0.03),SCNVector3(p.x,1.54,wall+0.29),darkMetal)
@@ -454,7 +466,7 @@ final class GameController: UIViewController {
                 box(SCNVector3(0.07,0.24,0.08),SCNVector3(p.x-0.37,y,wall+0.32),darkMetal)
             }
             box(SCNVector3(0.05,0.04,0.02),SCNVector3(p.x+0.35,0.25,wall+0.3),.systemGreen,glow:true)
-        case 2: // Lounge: an old television comes and goes in the dark.
+        case .lounge: // Lounge: an old television comes and goes in the dark.
             box(SCNVector3(1.48,0.94,0.42),SCNVector3(p.x,1.41,wall+0.07),darkMetal)
             let screen = box(SCNVector3(1.18,0.70,0.018),SCNVector3(p.x-0.04,1.43,wall+0.29),UIColor(red:0.14,green:0.43,blue:0.48,alpha:1),glow:true)
             thermalScreens.append(screen)
@@ -463,7 +475,7 @@ final class GameController: UIViewController {
                 .fadeOpacity(to:0.86,duration:0.32), .wait(duration:2.1),
                 .fadeOpacity(to:0.40,duration:0.18), .wait(duration:0.47)
             ])))
-        case 3: // Study: crowded shelves.
+        case .study: // Study: crowded shelves.
             for y in [Float(0.75), 1.37, 1.99] {
                 box(SCNVector3(1.78,0.10,0.43),SCNVector3(p.x,y,wall+0.10),UIColor(red:0.26,green:0.14,blue:0.075,alpha:1))
                 for i in 0..<6 {
@@ -472,29 +484,29 @@ final class GameController: UIViewController {
                     box(SCNVector3(0.18,height,0.26),SCNVector3(p.x-0.63+Float(i)*0.25,y+0.05+height/2,wall+0.12),color)
                 }
             }
-        case 4: // Laundry: circular washer door.
+        case .laundry: // Laundry: circular washer door.
             box(SCNVector3(1.2,1.25,0.43),SCNVector3(p.x,0.63,wall+0.11),enamel)
             let door = sphere(0.40,SCNVector3(p.x,0.58,wall+0.34),darkMetal,world.rootNode)
             door.scale.z = 0.10
             box(SCNVector3(0.25,0.055,0.02),SCNVector3(p.x+0.27,1.10,wall+0.34),.systemOrange,glow:true)
-        case 5: // Workshop: amber tool rack and hanging spanners.
+        case .workshop: // Workshop: amber tool rack and hanging spanners.
             box(SCNVector3(1.82,1.08,0.11),SCNVector3(p.x,1.58,wall),UIColor(red:0.35,green:0.16,blue:0.06,alpha:1))
             for i in 0..<5 {
                 let tool = box(SCNVector3(0.08,0.40,0.07),SCNVector3(p.x-0.64+Float(i)*0.32,1.6,wall+0.10),enamel)
                 tool.eulerAngles.z = i.isMultiple(of:2) ? -0.22 : 0.22
             }
-        case 6:
+        case .dining:
             box(SCNVector3(2.4,0.12,1.18),SCNVector3(p.x,0.89,wall+0.65),UIColor(red:0.25,green:0.15,blue:0.092,alpha:1))
             for x in [Float(-0.89),0.89] {
                 box(SCNVector3(0.12,0.84,0.80),SCNVector3(p.x+x,0.42,wall+0.65),darkMetal)
             }
             let plate = sphere(0.24,SCNVector3(p.x+0.51,0.97,wall+0.69),enamel,world.rootNode)
             plate.scale.y = 0.11
-        case 7:
+        case .guest:
             box(SCNVector3(2.05,0.40,1.44),SCNVector3(p.x,0.30,wall+0.56),darkMetal)
             box(SCNVector3(2.03,0.14,1.45),SCNVector3(p.x,0.56,wall+0.56),UIColor(red:0.49,green:0.47,blue:0.41,alpha:1))
             box(SCNVector3(1.58,0.06,1.09),SCNVector3(p.x,0.66,wall+0.72),UIColor(red:0.14,green:0.27,blue:0.25,alpha:1))
-        default:
+        case .sunroom:
             box(SCNVector3(3.15,1.38,0.13),SCNVector3(p.x,1.97,wall),darkMetal)
             for x in [Float(-1.04),0,1.04] {
                 box(SCNVector3(0.94,1.22,0.04),SCNVector3(p.x+x,1.97,wall+0.09),UIColor(red:0.12,green:0.24,blue:0.30,alpha:1))
@@ -892,7 +904,7 @@ final class GameController: UIViewController {
             world.rootNode.addChildNode(node)
             remoteRing = node
             if soundEnabled, let ringtone { node.addAudioPlayer(SCNAudioPlayer(source:ringtone)) }
-            tell("Ringing in the \(room.name). Hang up before he traces you.",duration:4)
+            tell("Ringing in the \(room.kind.rawValue). Hang up before he traces you.",duration:4)
         case .incoming:
             endCall()
             tell("Incoming call silenced.")

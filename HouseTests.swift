@@ -7,5 +7,11 @@ import Testing
             #expect(house.path(from:House.spawn,to:c).last == c)
         }
     }
+    @Test func initialSceneLoads() {
+        let controller = GameController()
+        controller.loadViewIfNeeded()
+        #expect(controller.isViewLoaded)
+    }
+
     @Test func exteriorIsSolid() { #expect(!House(seed:0).walkable(0,0)) }
 }

@@ -1,10 +1,11 @@
 name: Unit Tests (Simulator)
 
-# Runs the unit tests on an iOS Simulator. Dispatch + pull-request only, to
-# conserve free macOS minutes — the IPA build is the routine job on main.
+# Runs the unit tests on an iOS Simulator, including on the IPA update branch.
 # Reads the scheme name from project.yml's `name:` field.
 
 on:
+  push:
+    branches: [gameplay-ipa-update]
   workflow_dispatch:
   pull_request:
     branches: [main]
@@ -52,11 +53,17 @@ jobs:
         id: sim
         run: |
           set -euo pipefail
-          # First available iPhone simulator on the runner.
-          NAME=$(xcrun simctl list devices available | grep -Eo 'iPhone [0-9]+( Pro)?( Max)?' | head -1)
-          if [ -z "$NAME" ]; then NAME="iPhone 16"; fi
-          echo "name=$NAME" >> "$GITHUB_OUTPUT"
-          echo "Using simulator: $NAME"
+          UDID=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          groups = json.load(sys.stdin)["devices"]
+          devices = [device for runtime, catalog in sorted(groups.items(), reverse=True)
+                     if ".iOS-" in runtime for device in catalog if device.get("isAvailable")]
+          match = next((item for item in devices if item["name"].startswith("iPad")), None)
+          if match is None:
+              match = next(item for item in devices if item["name"].startswith("iPhone"))
+          print(match["udid"])
+          ')
+          echo "id=$UDID" >> "$GITHUB_OUTPUT"
 
       - name: Run tests
         env:
@@ -66,5 +73,5 @@ jobs:
           xcodebuild test \
             -project "${SCHEME}.xcodeproj" \
             -scheme "$SCHEME" \
-            -destination "platform=iOS Simulator,name=${{ steps.sim.outputs.name }}" \
+            -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.id }}" \
             CODE_SIGNING_ALLOWED=NO
