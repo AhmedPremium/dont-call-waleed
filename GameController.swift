@@ -125,6 +125,7 @@ final class GameController: UIViewController {
     private var enemyBend = [SCNNode]()
     private var houseAmbient: SCNLight?
     private let introOverlay = UIView()
+    private let introSkip = UIButton(type:.system)
     private let introCaption = UILabel()
     private let introPhone = IntroPhoneView(frame:.zero)
     private var opening: OpeningScene?
@@ -303,7 +304,7 @@ final class GameController: UIViewController {
         introCaption.layer.shadowRadius = 5
         introCaption.layer.shadowOffset = .zero
 
-        let skip = UIButton(type:.system)
+        let skip = introSkip
         button(skip,"SKIP",#selector(skipIntro))
         for item in [introCaption,introPhone,skip] {
             item.translatesAutoresizingMaskIntoConstraints = false
@@ -1113,6 +1114,7 @@ final class GameController: UIViewController {
         lastTime = 0
         shade.isHidden = true
         introOverlay.isHidden = false
+        introSkip.isHidden = false
         introOverlay.backgroundColor = .clear
         introPhone.isHidden = true
         introPhone.alpha = 0
@@ -1189,6 +1191,7 @@ final class GameController: UIViewController {
 
     @objc private func skipIntro() {
         guard phase == .intro else { return }
+        introSkip.isHidden = true
         players["ringback"]?.stop()
         players["line-static"]?.stop()
         phoneVoice.stopSpeaking(at:.immediate)
