@@ -12,8 +12,8 @@ settings:
     CODE_SIGNING_REQUIRED: "NO"
     CODE_SIGNING_ALLOWED: "NO"
     CODE_SIGN_IDENTITY: ""
-    MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "1"
+    MARKETING_VERSION: "0.2.0"
+    CURRENT_PROJECT_VERSION: "2"
 targets:
   DontCallWaleed:
     type: application
@@ -33,11 +33,13 @@ targets:
       - path: GameController.swift
       - path: Resources
       - path: Artwork-Credit.txt
+      - path: blackout.wav
       - path: burp1.wav
       - path: burp2.wav
       - path: burp3.wav
       - path: drone.wav
       - path: Font-Credit.txt
+      - path: fridge.wav
       - path: heartbeat.wav
       - path: pickup.wav
       - path: ring.wav

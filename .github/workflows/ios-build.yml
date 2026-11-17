@@ -10,7 +10,7 @@ name: iOS Build (Unsigned IPA)
 
 on:
   push:
-    branches: [main]
+    branches: [main, gameplay-ipa-update]
     paths-ignore:
       - "docs/**"
       - "**.md"

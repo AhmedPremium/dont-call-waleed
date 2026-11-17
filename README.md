@@ -2,11 +2,15 @@
 
 An original first-person horror prototype for iPad (iPadOS 17+) and iPhone, in landscape. Built with Apple's SceneKit and UIKit. No network access, ads, accounts, tracking, or in-app purchases.
 
-Explore six rooms, collect three cyan fuses, restore power at the red fuse box, and escape through the green door. Waleed patrols and investigates your ringing phone and running footsteps. Break his line of sight, then use a gold-handled cupboard to hide. The flashlight recharges when switched off. Hold RUN to sprint; release it to recover stamina.
+The opening cutscene follows Yamen as he calls Waleed at 3:00 AM and the house goes dark. Play begins in that same house. The opening can be skipped.
 
-Left joystick moves. Drag the right side to look. USE collects, hides, operates the fuse box, or opens the exit. SILENCE declines an incoming call. Pause stops the game; switching apps pauses automatically. Sound can be disabled from the menu.
+Explore the Bedroom, Kitchen, Lounge, Study, Laundry and Workshop. Collect three cyan fuses, restore power at the red fuse box, and escape through the green door. Waleed patrols, gives chase on sight or sound, and searches the area around your last known position. His eyes glow red up close. Break his line of sight, then use a gold-handled cupboard to hide.
 
-This is a first playable alpha, with original procedural geometry, app icon and synthesized audio. Contains jumpscares. Rendering and touch feel require real iPad testing. Cloud compilation and map validation do not establish device performance or a completed playthrough.
+Move with the left joystick and drag the right side to look. Tap RUN above the movement stick to toggle sprint. USE interacts with nearby objects. The flashlight has a tight beam and recharges when switched off. Pause stops play, including when the app goes into the background.
+
+CALL WALEED makes his phone ring in a nearby room and draws him toward it. HANG UP within four seconds to avoid being traced. SILENCE declines incoming calls before they draw him closer. The room name appears even with sound muted.
+
+Contains a 3D jumpscare, sudden sounds and haptics. Sound can be disabled from the menu. Real-device rendering, touch feel, audio balance and a completed playthrough still need iPad testing.
 
 ## Build and installation
 
@@ -16,6 +20,6 @@ The build runs main.swift against the actual House.swift rules before compiling 
 
 The template's original MIT license is retained in LICENSE.
 
-## Menu and audio update
+## Atmosphere
 
-The menu uses an empty haunted hallway (no female figure), the user-supplied VCR OSD Mono font, and a red 3 AM subtitle. Three original synthesized burp variants play at random room positions every 10–24 seconds, starting after 9 seconds. They pause and mute with the game. Positional playback uses the camera as the audio listener. Real-device audio and rendering remain unverified.
+The VHS menu uses the empty hallway artwork and the supplied VCR OSD Mono font. The kitchen fridge hums, the lounge television flickers, and occasional positional burps come from either Waleed or another room. Use headphones to hear the direction.

@@ -54,8 +54,36 @@ enum House {
         }
         return []
     }
+    static func reachedWaypoint(_ remaining: Float) -> Bool { remaining <= 0.012 }
+
+    static func searchCells(near origin: Cell) -> [Cell] {
+        var candidates = [Cell]()
+        for dz in -3...3 {
+            for dx in -3...3 where abs(dx)+abs(dz) >= 2 && abs(dx)+abs(dz) <= 3 {
+                let candidate = Cell(x:origin.x+dx,z:origin.z+dz)
+                let route = path(from:origin,to:candidate)
+                if !route.isEmpty && route.count <= 4 { candidates.append(candidate) }
+            }
+        }
+        return Array(candidates.shuffled().prefix(3))
+    }
+
+    static func canCatch(enemyX: Float, enemyZ: Float, playerX: Float, playerZ: Float) -> Bool {
+        let close = hypot(playerX-enemyX,playerZ-enemyZ) <= 1.30
+        return close && visible(enemyX,enemyZ,playerX,playerZ)
+    }
+
+    static func walkableBetween(_ ax: Float,_ az: Float,_ bx: Float,_ bz: Float,radius: Float) -> Bool {
+        let steps = max(1,Int(ceil(hypot(bx-ax,bz-az)/0.10)))
+        for i in 0...steps {
+            let t = Float(i)/Float(steps)
+            if !walkable(ax+(bx-ax)*t,az+(bz-az)*t,radius:radius) { return false }
+        }
+        return true
+    }
+
     static func visible(_ ax:Float,_ az:Float,_ bx:Float,_ bz:Float) -> Bool {
-        let steps = max(1,Int(hypot(bx-ax,bz-az)/0.2))
+        let steps = max(1,Int(ceil(hypot(bx-ax,bz-az)/0.10)))
         for i in 0...steps {
             let t = Float(i)/Float(steps)
             if !open(cell(ax+(bx-ax)*t,az+(bz-az)*t)) { return false }
