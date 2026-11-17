@@ -27,7 +27,7 @@ struct House {
     static let enemy = Cell(x: 14, z: 2)
     static let foyerEntrance = Cell(x:0,z:13)
     static let sunroomWindow = Cell(x:14,z:11)
-    static let panel = Cell(x: 14, z: 14)
+    static let panel = Cell(x: 14, z: 15)
     static let fridgeStop = Cell(x:12,z:1)
     static let loungeTV = Cell(x:6,z:6)
     static let sofaStop = Cell(x:6,z:7)
@@ -66,6 +66,11 @@ struct House {
     static let decorationSites = [
         WallSite(6,1,0,-1), WallSite(15,4,1,0), WallSite(1,6,-1,0),
         WallSite(7,9,1,0), WallSite(1,12,-1,0), WallSite(12,15,0,1)
+    ]
+    // Fixed wall cells keep storage clear of either seeded utility doorway.
+    static let roomStorageSites = [
+        WallSite(6,4,0,1), WallSite(10,4,0,1), WallSite(2,9,0,1),
+        WallSite(10,9,0,1), WallSite(2,15,0,1), WallSite(10,11,0,-1)
     ]
     let rows: [[Character]]
     let fuses: [Cell]
@@ -127,13 +132,17 @@ struct House {
         let decor = Self.decorationSites.map {
             Footprint($0.cell,Float($0.wallX)*0.96,Float($0.wallZ)*0.96,0.22,0.22)
         }
-        furniture = counters + cabinets + decor + [
+        let storage = Self.roomStorageSites.map { site in
+            Footprint(site.cell,0,Float(site.wallZ)*0.94,0.70,0.26)
+        }
+        furniture = counters + cabinets + decor + storage + [
             Footprint(kitchen,0,-0.93,0.52,0.195),
             Footprint(Self.loungeTV,0,-0.79,1.07,0.305),
             Footprint(Self.sofaStop,0,0.73,1.29,0.455),
             Footprint(Self.laundryWasher,0,-0.88,0.60,0.24),
             Footprint(Self.studyShelves,0,-0.92,0.89,0.215),
-            Footprint(Self.serviceDesk,0,-0.88,0.76,0.26)
+            Footprint(Self.serviceDesk,0,-0.88,0.76,0.26),
+            Footprint(Self.panel,0,1.06,0.445,0.14)
         ]
         patrol = [Self.enemy,Self.fridgeStop,Cell(x:2,z:2),Self.sofaStop,
                   Self.listeningStop,Cell(x:14,z:14),Cell(x:3,z:13)]
@@ -246,14 +255,17 @@ enum OpeningLayout {
     static let worldZ = portalWorldZ-portalLocalZ
     static let frontDoorZ: Float = -10.45
     static let gardenBox = (x:Float(1.95),z:Float(-17.3))
-    static let gardenFigure = (x:Float(-0.2),z:Float(-24.4))
+    static let gardenFigure = (x:Float(-0.75),z:Float(-23.5))
+    static let revealBush = (x:Float(-0.75),z:Float(-22.6))
+    static let gardenEndZ: Float = -24.04
     static let bedside = (x: Float(-0.72), z: Float(3.65))
 
     static func walkable(x:Float,z:Float) -> Bool {
         guard z < 5.45 && z > frontDoorZ+0.18 else { return false }
         if z >= 0.22 {
             let onBed = x > -2.89 && x < -1.13 && z > 2.99
-            return abs(x) < 3.06 && !onBed
+            let onDesk = x > 2.27 && z > 3.29 && z < 5.44
+            return abs(x) < 3.06 && !onBed && !onDesk
         }
         if z >= stairEnd-0.17 { return abs(x) < 0.82 }
         return z > frontDoorZ+0.18 && abs(x) < 2.95
@@ -280,8 +292,9 @@ enum OpeningLayout {
     static func walkableWithGarden(_ house:House,x:Float,z:Float,doorOpen:Bool) -> Bool {
         let localX = x-worldX, localZ = z-worldZ
         if doorOpen && abs(localX) < 0.74 && abs(localZ-frontDoorZ) <= 0.38 { return true }
-        if localZ < frontDoorZ-0.16 && abs(localX) < 1.89 && localZ > gardenFigure.z+0.36 {
-            return !((1.73...2.24).contains(localX) && abs(localZ-gardenBox.z)<0.36)
+        if localZ < frontDoorZ-0.16 && abs(localX) < 1.89 && localZ > gardenEndZ {
+            let behindBush = abs(localX-revealBush.x) < 0.95 && abs(localZ-revealBush.z) < 0.63
+            return !behindBush && !((1.73...2.24).contains(localX) && abs(localZ-gardenBox.z)<0.36)
         }
         return walkableInHouse(house,x:x,z:z)
     }

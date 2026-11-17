@@ -96,15 +96,33 @@ final class OpeningScene {
         }
         block(2.18,0.30,0.15,0,y+2.47,0,timber,finish:oak)
         block(1.78,1.03,0.13,-2.00,y+0.52,5.33,timber,finish:oak)
+        for x in [Float(-2.65),-1.35] {
+            for z in [Float(3.40),5.05] {
+                block(0.12,0.09,0.12,x,y+0.045,z,timber,finish:oak)
+            }
+        }
         block(1.65,0.29,2.14,-2.00,y+0.23,4.24,timber,finish:oak)
         block(1.58,0.21,2.11,-2.00,y+0.47,4.24,UIColor(white:0.67,alpha:1))
-        block(1.55,0.10,1.40,-2.00,y+0.61,3.92,pale,finish:quilt)
+        block(1.55,0.10,1.40,-2.00,y+0.625,3.92,pale,finish:quilt)
         for x in [Float(-2.39),-1.62] {
             block(0.56,0.15,0.43,x,y+0.66,4.97,UIColor(white:0.86,alpha:1))
         }
         block(0.70,0.68,0.53,-0.70,y+0.34,5.04,timber,finish:oak)
         block(0.44,0.028,0.34,-0.70,y+0.711,5.02,.black)
         block(0.42,0.018,0.28,-0.70,y+0.731,5.02,UIColor(red:0.105,green:0.19,blue:0.25,alpha:1))
+        let deskX: Float = 2.82
+        block(0.60,0.08,1.65,deskX,y+0.78,4.36,timber,finish:oak)
+        for z in [Float(3.68),5.04] {
+            block(0.50,0.74,0.08,deskX,y+0.37,z,timber,finish:oak)
+        }
+        block(0.16,0.025,0.33,deskX,y+0.8325,4.26,.darkGray)
+        block(0.055,0.13,0.06,deskX,y+0.91,4.26,.darkGray)
+        block(0.08,0.46,0.66,deskX+0.12,y+1.19,4.26,.black).name = "Bedroom PC monitor"
+        block(0.014,0.38,0.58,deskX+0.073,y+1.19,4.26,UIColor(white:0.09,alpha:1))
+        block(0.22,0.026,0.50,deskX-0.15,y+0.833,4.26,.darkGray)
+        for i in 0..<3 {
+            block(0.29,0.045,0.22,deskX,y+0.8425+Float(i)*0.045,4.90,i == 1 ? pale : timber)
+        }
         lamp(x:1.6,y:y+2.25,z:3.6,intensity:760)
         lamp(x:-2.25,y:y+1.1,z:4.70,intensity:270)
     }
@@ -203,6 +221,18 @@ final class OpeningScene {
                 root.addChildNode(bush)
                 if i.isMultiple(of:2) { block(0.46,0.45,0.48,side*2.43,0.225,z+0.70,brick) }
             }
+        }
+        // Dense foliage hides the torso while the eyes remain above the silhouette.
+        let cover = OpeningLayout.revealBush
+        for i in -1...1 {
+            let mesh = SCNSphere(radius:1)
+            mesh.segmentCount = 12
+            mesh.firstMaterial?.diffuse.contents = hedge
+            let foliage = SCNNode(geometry:mesh)
+            foliage.name = "Reveal hedge"
+            foliage.position = SCNVector3(cover.x+Float(i)*0.40,0.97,cover.z)
+            foliage.scale = SCNVector3(0.48,0.97-Float(abs(i))*0.12,0.44)
+            root.addChildNode(foliage)
         }
         for x in [Float(-1.22),1.22] {
             block(0.30,2.8,0.40,x,1.40,-24.69,brick)

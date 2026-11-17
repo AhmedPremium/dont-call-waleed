@@ -87,6 +87,17 @@ for seed in 0..<32 {
     }
     check(!OpeningLayout.walkableInHouse(layout,x:-0.06,z:OpeningLayout.portalWorldZ+1.3),
           "Foyer walls must remain solid away from the opening")
+    check(!layout.open(Cell(x:House.panel.x,z:House.panel.z+1)), "Security panel must touch a fixed wall")
+    let panelX = (Float(House.panel.x)+0.5)*House.tile
+    let panelZ = (Float(House.panel.z)+0.5)*House.tile
+    check(!layout.walkable(panelX,panelZ+1.06), "Security enclosure must block movement")
+    for site in House.roomStorageSites {
+        let x = (Float(site.cell.x)+0.5)*House.tile
+        let z = (Float(site.cell.z)+0.5)*House.tile
+        check(!layout.open(site.wall), "Room storage must be backed by a fixed wall")
+        check(!layout.walkable(x,z+Float(site.wallZ)*0.94), "Room storage must block movement")
+        check(layout.walkable(x,z), "Room storage must leave its approach clear")
+    }
     let missions = [House.exit,House.panel,House.foyerEntrance,House.serviceDesk,House.kitchenRelay,House.laundryRelay]
     for cell in cupboardCells + layout.patrol + House.closets + missions {
         let route = layout.path(from:House.spawn,to:cell)
@@ -188,3 +199,15 @@ check(story.advance(.resetRelay(House.laundryRelay)) && !story.advance(.resetRel
 check(!story.advance(.releaseExit) && story.advance(.resetRelay(House.kitchenRelay)), "Both relays are required")
 check(story.advance(.releaseExit) && story.stage == .exit, "The study console must release the back door")
 print("Validated all garden and story objectives, the relay interlock, and close-range crouch detection.")
+
+// New furnishings must preserve the approach to the breaker and the escape lane.
+check(!OpeningLayout.walkable(x:2.82,z:4.36), "Bedroom desk must block movement")
+let hedge = OpeningLayout.revealBush
+check(!OpeningLayout.walkableWithGarden(house,x:hedge.x+OpeningLayout.worldX,
+      z:hedge.z+OpeningLayout.worldZ,doorOpen:true), "Reveal hedge must block movement")
+for i in 0...120 {
+    let z = OpeningLayout.gardenBox.z+(OpeningLayout.frontDoorZ+0.7-OpeningLayout.gardenBox.z)*Float(i)/120
+    check(OpeningLayout.walkableWithGarden(house,x:OpeningLayout.worldX+0.70,
+          z:z+OpeningLayout.worldZ,doorOpen:true), "Breaker-to-door escape lane must stay clear")
+}
+print("Validated grounded storage, panel mounting, bedroom desk, and garden escape lane.")

@@ -28,6 +28,10 @@ import Testing
         #expect(hiddenFuses.count == 3)
         #expect(root?.childNode(withName:"Exit door hinge",recursively:true) != nil)
         #expect(root?.childNode(withName:"Service cabinet key",recursively:true) != nil)
+        #expect(root?.childNode(withName:"Wall-mounted security panel",recursively:true) != nil)
+        #expect(root?.childNode(withName:"Game console",recursively:true) != nil)
+        #expect(root?.childNode(withName:"Study PC tower",recursively:true) != nil)
+        #expect(root?.childNodes.filter { $0.name == "Room storage" }.count == 6)
         #expect(root?.childNode(withName:"Security relay 1",recursively:true) != nil)
         #expect(root?.childNode(withName:"Security relay 2",recursively:true) != nil)
     }
@@ -45,6 +49,18 @@ import Testing
         #expect(OpeningLayout.floorHeight(at:-3) < OpeningLayout.upperFloor)
         #expect(OpeningLayout.canOpenDoor(x:0,z:OpeningLayout.frontDoorZ+0.72))
         opening.openFrontDoor()
+    }
+
+    @Test func hedgeConcealsBodyButLeavesEyesVisible() {
+        let opening = OpeningScene()
+        let figure = OpeningLayout.gardenFigure
+        let observer = SCNVector3(1.2,1.6,OpeningLayout.gardenBox.z)
+        let torso = SCNVector3(figure.x,1.3,figure.z)
+        let eyes = SCNVector3(figure.x,2.274,figure.z+0.258)
+        let bodyHits = opening.root.hitTestWithSegment(from:observer,to:torso,options:nil)
+        let eyeHits = opening.root.hitTestWithSegment(from:observer,to:eyes,options:nil)
+        #expect(bodyHits.contains { $0.node.name == "Reveal hedge" })
+        #expect(!eyeHits.contains { $0.node.name == "Reveal hedge" })
     }
 
     @Test func documentOpensAndCanClose() {
