@@ -491,7 +491,6 @@ final class GameController: UIViewController {
         torch.light?.castsShadow = true
         torch.light?.shadowMapSize = CGSize(width:1024,height:1024)
         torch.light?.shadowRadius = 2
-        torch.light?.shadowBias = 0.002
         camera.addChildNode(torch)
         sceneView.scene = world; sceneView.pointOfView = camera; sceneView.audioListener = camera
     }
