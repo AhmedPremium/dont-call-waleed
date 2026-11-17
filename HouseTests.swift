@@ -24,7 +24,8 @@ import Testing
         #expect(cupboards.count == 9)
         let storedFuses = cupboards.compactMap { $0.childNode(withName:"Glass safety fuse",recursively:true) }
         #expect(storedFuses.count == 3)
-        #expect(storedFuses.allSatisfy(\.isHidden))
+        let hiddenFuses = storedFuses.filter { $0.isHidden }
+        #expect(hiddenFuses.count == 3)
         #expect(root?.childNode(withName:"Exit door hinge",recursively:true) != nil)
     }
 
