@@ -58,15 +58,22 @@ for seed in 0..<32 {
         let p = doorway.cell
         check(layout.path(from:House.spawn,to:p).last == p, "A door is outside the reachable floor")
     }
-    check(Set(layout.fuses).count == 3 && layout.fuses.allSatisfy(House.cupboards.contains),
+    let cupboardCells = House.cupboards.map(\.cell)
+    check(Set(layout.fuses).count == 3 && layout.fuses.allSatisfy(cupboardCells.contains),
           "Exactly three cupboards must contain a fuse")
-    for cupboard in House.cupboards {
+    for site in House.cupboards {
+        let cupboard = site.cell
         let x = (Float(cupboard.x)+0.5)*House.tile
         let z = (Float(cupboard.z)+0.5)*House.tile
-        check(!layout.walkable(x,z+House.cupboardOffset),"Cupboards must block movement")
+        let backX = x+Float(site.wallX)*House.cupboardOffset
+        let backZ = z+Float(site.wallZ)*House.cupboardOffset
+        let tangentX = -Float(site.wallZ)*0.56
+        let tangentZ = Float(site.wallX)*0.56
+        check(!layout.open(site.wall),"A cupboard must be backed by a fixed wall")
+        check(!layout.walkable(backX,backZ),"Cupboards must block movement")
         check(layout.walkable(x,z),"A player must be able to stand at the front of every cupboard")
-        check(!layout.canCatch(enemyX:x-0.55,enemyZ:z+House.cupboardOffset,
-                               playerX:x+0.55,playerZ:z+House.cupboardOffset),
+        check(!layout.canCatch(enemyX:backX-tangentX,enemyZ:backZ-tangentZ,
+                               playerX:backX+tangentX,playerZ:backZ+tangentZ),
               "Waleed cannot grab through a cupboard")
     }
     for fixture in [House.loungeTV,House.laundryWasher,House.studyShelves] {
@@ -80,7 +87,8 @@ for seed in 0..<32 {
     }
     check(!OpeningLayout.walkableInHouse(layout,x:-0.06,z:OpeningLayout.portalWorldZ+1.3),
           "Foyer walls must remain solid away from the opening")
-    for cell in House.cupboards + layout.patrol + House.closets + [House.exit,House.panel,House.foyerEntrance] {
+    let missions = [House.exit,House.panel,House.foyerEntrance,House.serviceDesk,House.kitchenRelay,House.laundryRelay]
+    for cell in cupboardCells + layout.patrol + House.closets + missions {
         let route = layout.path(from:House.spawn,to:cell)
         check(route.last == cell, "Seed \(seed) has an unreachable objective or patrol point")
         for (start,end) in zip([House.spawn]+route,route) {
@@ -121,7 +129,8 @@ for i in 0...140 {
 check(lastHeight == 0,"Player must reach the downstairs floor")
 print("Validated the prologue route from upstairs bed to downstairs front door.")
 
-check(!House.canNotice(range:1,forward:1,flashlight:true,crouched:true), "Crouching prevents Waleed detecting the player")
+check(House.canNotice(range:1,forward:1,flashlight:true,crouched:true), "Waleed must see a crouched player at close range")
+check(!House.canNotice(range:4,forward:4,flashlight:false,crouched:true), "Crouching reduces detection range")
 check(!House.canNotice(range:4,forward:-4,flashlight:false,crouched:false), "Patrol vision should not detect players behind Waleed")
 check(House.canNotice(range:4,forward:4,flashlight:false,crouched:false), "Visible standing players should still be detected")
 
@@ -157,3 +166,25 @@ for (beat,time) in zip(EscapeSequence.Beat.allCases,EscapeSequence.cues) {
 }
 check(EscapeSequence.beat(at:20) == .results,"Ending must settle at the results screen")
 print("Validated the escape cutscene cue order.")
+
+let frontZ = OpeningLayout.worldZ+OpeningLayout.frontDoorZ
+let frontX = OpeningLayout.worldX
+check(!OpeningLayout.walkableWithGarden(house,x:frontX,z:frontZ,doorOpen:false),"The closed door blocks the garden route")
+for t in 0...72 {
+    let z = frontZ+0.50-Float(t)*0.10
+    check(OpeningLayout.walkableWithGarden(house,x:frontX,z:z,doorOpen:true),"The open door connects the house and the garden path")
+}
+let breaker = OpeningLayout.gardenBox
+check(OpeningLayout.walkableWithGarden(house,x:frontX+1,z:OpeningLayout.worldZ+breaker.z,doorOpen:true),
+      "Yamen must be able to approach the garden breaker")
+var story = StoryProgress()
+check(!story.advance(.releaseExit), "The exit must remain locked during the opening")
+check(story.advance(.closeRainDoor) && story.stage == .garden, "Opening must hand control back for the garden objective")
+check(story.advance(.resetGardenPower) && story.stage == .retreat, "Restoring house power starts the retreat")
+check(!story.advance(.watchBroadcast) && story.advance(.lockFrontDoor), "The front door must be locked before watching the news")
+check(story.advance(.watchBroadcast) && story.advance(.installFuses) && story.advance(.takeKey), "The middle objectives must link up")
+check(story.advance(.resetRelay(House.laundryRelay)) && !story.advance(.resetRelay(House.laundryRelay)),
+      "A repeated relay cannot satisfy both objectives")
+check(!story.advance(.releaseExit) && story.advance(.resetRelay(House.kitchenRelay)), "Both relays are required")
+check(story.advance(.releaseExit) && story.stage == .exit, "The study console must release the back door")
+print("Validated all garden and story objectives, the relay interlock, and close-range crouch detection.")

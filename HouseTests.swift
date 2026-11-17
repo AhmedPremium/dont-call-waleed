@@ -27,6 +27,9 @@ import Testing
         let hiddenFuses = storedFuses.filter { $0.isHidden }
         #expect(hiddenFuses.count == 3)
         #expect(root?.childNode(withName:"Exit door hinge",recursively:true) != nil)
+        #expect(root?.childNode(withName:"Service cabinet key",recursively:true) != nil)
+        #expect(root?.childNode(withName:"Security relay 1",recursively:true) != nil)
+        #expect(root?.childNode(withName:"Security relay 2",recursively:true) != nil)
     }
 
     @Test func openingSceneHasStairsAndDoor() {
@@ -35,6 +38,8 @@ import Testing
         #expect(opening.root.position.x == OpeningLayout.worldX)
         #expect(opening.root.childNode(withName:"Stairwell ceiling",recursively:false) != nil)
         #expect(opening.root.childNode(withName:"Stairwell end wall",recursively:false) != nil)
+        #expect(opening.root.childNode(withName:"Garden service breaker",recursively:false) != nil)
+        #expect(opening.root.childNode(withName:"Garden rain",recursively:false) != nil)
         #expect(OpeningLayout.walkableInHouse(House(seed:0),x:0,z:OpeningLayout.portalWorldZ))
         opening.reachForKnob()
         #expect(OpeningLayout.floorHeight(at:-3) < OpeningLayout.upperFloor)

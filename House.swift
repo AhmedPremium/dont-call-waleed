@@ -35,16 +35,38 @@ struct House {
     static let studyShelves = Cell(x:14,z:6)
     static let listeningStop = Cell(x:8,z:8)
     static let exit = Cell(x: 7, z: 15)
+    static let serviceDesk = Cell(x: 10,z:6)
+    static let kitchenRelay = Cell(x: 15,z:2)
+    static let laundryRelay = Cell(x: 3,z:15)
     static let closets = [Cell(x: 1, z: 14), Cell(x: 1, z: 3), Cell(x: 15, z: 9)]
+
+    struct WallSite {
+        let cell: Cell
+        let wallX: Int
+        let wallZ: Int
+
+        init(_ x:Int,_ z:Int,_ wallX:Int,_ wallZ:Int) {
+            cell = Cell(x:x,z:z)
+            self.wallX = wallX
+            self.wallZ = wallZ
+        }
+
+        var wall: Cell { Cell(x:cell.x+wallX,z:cell.z+wallZ) }
+        var facing: Float { atan2(-Float(wallX),-Float(wallZ)) }
+    }
     private static let cupboardGroups = [
-        [Cell(x:2,z:2), Cell(x:5,z:3), Cell(x:13,z:4)],
-        [Cell(x:2,z:7), Cell(x:13,z:8), Cell(x:14,z:7)],
-        [Cell(x:3,z:12), Cell(x:12,z:13), Cell(x:10,z:14)]
+        [WallSite(2,1,0,-1), WallSite(1,4,-1,0), WallSite(14,4,0,1)],
+        [WallSite(2,6,0,-1), WallSite(1,8,-1,0), WallSite(13,9,0,1)],
+        [WallSite(2,11,0,-1), WallSite(10,15,0,1), WallSite(15,13,1,0)]
     ]
     static let cupboards = cupboardGroups.flatMap { $0 }
-    static let cupboardOffset: Float = -0.78
+    static let cupboardOffset: Float = 0.95
     static let cupboardWidth: Float = 1.04
     static let cupboardDepth: Float = 0.46
+    static let decorationSites = [
+        WallSite(6,1,0,-1), WallSite(15,4,1,0), WallSite(1,6,-1,0),
+        WallSite(7,9,1,0), WallSite(1,12,-1,0), WallSite(12,15,0,1)
+    ]
     let rows: [[Character]]
     let fuses: [Cell]
     let patrol: [Cell]
@@ -91,20 +113,27 @@ struct House {
             layout[wall][11+select(2)] = "."
         }
         rows = layout
-        fuses = Self.cupboardGroups.map { $0[select($0.count)] }
+        fuses = Self.cupboardGroups.map { $0[select($0.count)].cell }
         let kitchen = Cell(x:12,z:1)
         let counters = [-2,-1,1,2].map {
             Footprint(kitchen,Float($0)*1.18,-0.87,0.59,0.325)
         }
-        let cabinets = Self.cupboards.map {
-            Footprint($0,0,Self.cupboardOffset,Self.cupboardWidth/2,Self.cupboardDepth/2)
+        let cabinets = Self.cupboards.map { site in
+            let rotated = site.wallX != 0
+            return Footprint(site.cell,Float(site.wallX)*Self.cupboardOffset,Float(site.wallZ)*Self.cupboardOffset,
+                             (rotated ? Self.cupboardDepth : Self.cupboardWidth)/2,
+                             (rotated ? Self.cupboardWidth : Self.cupboardDepth)/2)
         }
-        furniture = counters + cabinets + [
+        let decor = Self.decorationSites.map {
+            Footprint($0.cell,Float($0.wallX)*0.96,Float($0.wallZ)*0.96,0.22,0.22)
+        }
+        furniture = counters + cabinets + decor + [
             Footprint(kitchen,0,-0.93,0.52,0.195),
             Footprint(Self.loungeTV,0,-0.79,1.07,0.305),
             Footprint(Self.sofaStop,0,0.73,1.29,0.455),
             Footprint(Self.laundryWasher,0,-0.88,0.60,0.24),
-            Footprint(Self.studyShelves,0,-0.92,0.89,0.215)
+            Footprint(Self.studyShelves,0,-0.92,0.89,0.215),
+            Footprint(Self.serviceDesk,0,-0.88,0.76,0.26)
         ]
         patrol = [Self.enemy,Self.fridgeStop,Cell(x:2,z:2),Self.sofaStop,
                   Self.listeningStop,Cell(x:14,z:14),Cell(x:3,z:13)]
@@ -165,7 +194,8 @@ struct House {
     }
 
     static func canNotice(range:Float,forward:Float,flashlight:Bool,crouched:Bool) -> Bool {
-        guard !crouched, range < (flashlight ? 8.4 : 5.8) else { return false }
+        if crouched { return range < 1.42 || (range < (flashlight ? 3.6 : 2.5) && forward >= range*0.80) }
+        guard range < (flashlight ? 8.4 : 5.8) else { return false }
         return range < 1.55 || forward >= range*0.63
     }
 
@@ -215,6 +245,8 @@ enum OpeningLayout {
     static let worldX: Float = -3.20
     static let worldZ = portalWorldZ-portalLocalZ
     static let frontDoorZ: Float = -10.45
+    static let gardenBox = (x:Float(1.95),z:Float(-17.3))
+    static let gardenFigure = (x:Float(-0.2),z:Float(-24.4))
     static let bedside = (x: Float(-0.72), z: Float(3.65))
 
     static func walkable(x:Float,z:Float) -> Bool {
@@ -244,13 +276,46 @@ enum OpeningLayout {
     static func canOpenDoor(x:Float,z:Float) -> Bool {
         abs(x) < 0.95 && z < frontDoorZ+1.27 && z >= frontDoorZ
     }
+
+    static func walkableWithGarden(_ house:House,x:Float,z:Float,doorOpen:Bool) -> Bool {
+        let localX = x-worldX, localZ = z-worldZ
+        if doorOpen && abs(localX) < 0.74 && abs(localZ-frontDoorZ) <= 0.38 { return true }
+        if localZ < frontDoorZ-0.16 && abs(localX) < 1.89 && localZ > gardenFigure.z+0.36 {
+            return !((1.73...2.24).contains(localX) && abs(localZ-gardenBox.z)<0.36)
+        }
+        return walkableInHouse(house,x:x,z:z)
+    }
+}
+
+struct StoryProgress {
+    enum Stage: Equatable { case doorstep, garden, retreat, broadcast, fuses, serviceKey, relays, release, exit }
+    enum Event { case closeRainDoor, resetGardenPower, lockFrontDoor, watchBroadcast, installFuses, takeKey, resetRelay(Cell), releaseExit }
+    private(set) var stage = Stage.doorstep
+    private(set) var resetRelays = Set<Cell>()
+
+    @discardableResult mutating func advance(_ event:Event) -> Bool {
+        switch (stage,event) {
+        case (.doorstep,.closeRainDoor): stage = .garden
+        case (.garden,.resetGardenPower): stage = .retreat
+        case (.retreat,.lockFrontDoor): stage = .broadcast
+        case (.broadcast,.watchBroadcast): stage = .fuses
+        case (.fuses,.installFuses): stage = .serviceKey
+        case (.serviceKey,.takeKey): stage = .relays
+        case (.relays,.resetRelay(let cell)) where cell == House.kitchenRelay || cell == House.laundryRelay:
+            guard resetRelays.insert(cell).inserted else { return false }
+            if resetRelays.count == 2 { stage = .release }
+        case (.release,.releaseExit): stage = .exit
+        default: return false
+        }
+        return true
+    }
 }
 
 enum EscapeSequence {
-    enum Beat: Int, CaseIterable { case approach, stepOut, doorShuts, knocks, call, blackout, results }
+    enum Beat: Int, CaseIterable { case approach, stepOut, doorShuts, knocks, call, blackout, title, question, credits, results }
 
     // Times also define the intervals used by the first-person camera moves.
-    static let cues: [Float] = [0,1.0,3.65,4.90,6.65,9.35,10.15]
+    static let cues: [Float] = [0,1.0,3.65,4.90,6.65,9.35,10.15,11.9,13.8,17.2]
 
     static func beat(at elapsed:Float) -> Beat {
         Beat.allCases.last { elapsed >= cues[$0.rawValue] } ?? .approach

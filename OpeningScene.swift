@@ -6,6 +6,8 @@ final class OpeningScene {
     private var lights = [SCNLight]()
     private var reachHand: SCNNode?
     private let door = SCNNode()
+    private let bolt = SCNNode()
+    private let gardenIndicator = SCNNode()
     private let oak = HouseMaterials.make(.oak,tint:UIColor(red:0.79,green:0.72,blue:0.64,alpha:1))
     private let quilt = HouseMaterials.make(.cloth,tint:UIColor(red:0.52,green:0.39,blue:0.32,alpha:1))
     private let pale = UIColor(red:0.61,green:0.55,blue:0.46,alpha:1)
@@ -17,6 +19,7 @@ final class OpeningScene {
         bedroom()
         stairs()
         foyer()
+        garden()
     }
 
     func setLit(_ lit:Bool) {
@@ -71,14 +74,14 @@ final class OpeningScene {
         reachHand = nil
     }
 
-    func pushUp(camera:SCNNode) {
-        for sign in [Float(-1),1] {
-            let hand = makeHand()
-            hand.position = SCNVector3(sign*0.29,-0.36,-0.57)
-            hand.eulerAngles = SCNVector3(0.34,sign*0.24,sign*0.20)
-            camera.addChildNode(hand)
-            hand.runAction(.sequence([.wait(duration:0.57),.moveBy(x:0,y:-0.48,z:0.17,duration:0.73),.removeFromParentNode()]))
-        }
+    func lockFrontDoor() {
+        slamFrontDoor()
+        bolt.runAction(.moveBy(x:0.13,y:0,z:0,duration:0.25))
+    }
+
+    func restoreGardenPower() {
+        gardenIndicator.geometry?.firstMaterial?.diffuse.contents = UIColor.systemGreen
+        gardenIndicator.geometry?.firstMaterial?.emission.contents = UIColor.systemGreen
     }
 
     private func bedroom() {
@@ -173,9 +176,80 @@ final class OpeningScene {
         handle.position = SCNVector3(1.41,1.04,0.14)
         door.addChildNode(handle)
         block(0.062,0.069,0.026,0.82,1.55,0.10,brass,parent:door)
+        bolt.position = SCNVector3(1.33,1.35,0.16)
+        door.addChildNode(bolt)
+        block(0.17,0.047,0.05,0,0,0,brass,parent:bolt)
         block(1.54,0.026,0.84,0,0.014,-9.71,timber,finish:quilt)
         block(1.35,0.73,0.56,-2.08,0.36,-9.88,timber,finish:oak)
         lamp(x:0,y:2.30,z:-8.47,intensity:720)
+    }
+
+    private func garden() {
+        let stone = UIColor(red:0.20,green:0.25,blue:0.27,alpha:1)
+        let wetTile = HouseMaterials.make(.tile,tint:stone)
+        let hedge = UIColor(red:0.10,green:0.18,blue:0.13,alpha:1)
+        let brick = UIColor(red:0.28,green:0.24,blue:0.22,alpha:1)
+        block(6.5,0.22,14.65,0,-0.16,-17.77,hedge)
+        block(2.08,0.18,14.65,0,-0.10,-17.77,stone,finish:wetTile)
+        block(2.13,0.10,1.15,0,-0.059,-10.89,stone,finish:wetTile)
+        for side in [Float(-1),1] {
+            block(0.24,2.04,14.42,side*2.95,1.02,-17.78,brick)
+            block(0.32,0.12,14.42,side*2.95,2.07,-17.78,stone)
+            for (i,z) in [Float(-12.5),-15.5,-20.0,-22.5].enumerated() {
+                let bush = SCNNode(geometry:SCNSphere(radius:0.58))
+                bush.geometry?.firstMaterial?.diffuse.contents = hedge
+                bush.position = SCNVector3(side*2.46,0.41,z)
+                bush.scale = SCNVector3(0.65,0.75,1+Float(i)*0.18)
+                root.addChildNode(bush)
+                if i.isMultiple(of:2) { block(0.46,0.45,0.48,side*2.43,0.225,z+0.70,brick) }
+            }
+        }
+        for x in [Float(-1.22),1.22] {
+            block(0.30,2.8,0.40,x,1.40,-24.69,brick)
+        }
+        block(2.74,0.36,0.40,0,2.62,-24.69,brick)
+        for i in -7...7 {
+            block(0.052,2.45,0.053,Float(i)*0.145,1.24,-24.83,stone)
+        }
+        let panel = OpeningLayout.gardenBox
+        block(0.48,0.92,0.58,panel.x,0.46,panel.z,brick)
+        block(0.48,0.58,0.61,panel.x,1.15,panel.z,stone).name = "Garden service breaker"
+        block(0.046,0.43,0.48,panel.x-0.25,1.17,panel.z,.darkGray)
+        block(0.09,0.18,0.058,panel.x-0.29,1.08,panel.z,brick)
+        gardenIndicator.position = SCNVector3(panel.x-0.283,1.31,panel.z+0.15)
+        gardenIndicator.geometry = SCNSphere(radius:0.048)
+        gardenIndicator.geometry?.firstMaterial?.emission.contents = UIColor.systemRed
+        root.addChildNode(gardenIndicator)
+
+        for (x,z,intensity) in [(Float(0.38),Float(-11.8),CGFloat(250)),(1.65,-17.0,320),(-0.38,-24.75,460)] {
+            let node = SCNNode()
+            let light = SCNLight()
+            light.type = .omni
+            light.color = UIColor(red:0.56,green:0.70,blue:0.86,alpha:1)
+            light.intensity = intensity
+            light.attenuationEndDistance = 6.2
+            node.position = SCNVector3(x,2.58,z)
+            node.light = light
+            root.addChildNode(node)
+        }
+        let rain = SCNParticleSystem()
+        rain.emitterShape = SCNBox(width:5.9,height:0.1,length:14.0,chamferRadius:0)
+        rain.birthRate = 490
+        rain.particleLifeSpan = 0.75
+        rain.particleLifeSpanVariation = 0.12
+        rain.emittingDirection = SCNVector3(0.13,-1,0.08)
+        rain.spreadingAngle = 3
+        rain.particleVelocity = 7.5
+        rain.particleVelocityVariation = 1.7
+        rain.particleSize = 0.022
+        rain.stretchFactor = 0.065
+        rain.particleColor = UIColor(red:0.63,green:0.76,blue:0.91,alpha:0.43)
+        rain.blendMode = .alpha
+        let emitter = SCNNode()
+        emitter.name = "Garden rain"
+        emitter.position = SCNVector3(0,5,-17.62)
+        emitter.addParticleSystem(rain)
+        root.addChildNode(emitter)
     }
 
     @discardableResult
