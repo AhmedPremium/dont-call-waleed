@@ -35,6 +35,7 @@ targets:
       - path: WaleedMesh.swift
       - path: IntroPhoneView.swift
       - path: OpeningScene.swift
+      - path: DocumentReader.swift
       - path: Resources
       - path: Artwork-Credit.txt
       - path: blackout.wav

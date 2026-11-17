@@ -54,7 +54,7 @@ final class Stick: UIView {
 }
 
 final class GameController: UIViewController {
-    enum Phase { case title, intro, downstairs, openingDoor, playing, paused, caught, escaped }
+    enum Phase { case title, intro, downstairs, openingDoor, playing, reading, paused, caught, escaped }
     private enum PhoneState {
         case idle, incoming(until: Float), outgoing(started: Float)
     }
@@ -100,11 +100,15 @@ final class GameController: UIViewController {
     private var lastKnownPlayer: Cell?
     private var searchRoute = [Cell]()
     private let shelter = Cell(x:15,z:6)
-    private let notes: [(cell:Cell, text:String)] = [
-        (Cell(x:4,z:14),"Waleed’s note: “It knocks three times. If it answers, leave the phone alone.”"),
-        (Cell(x:13,z:2),"Yamen’s message: “The loose boards set it off. There’s a steel shelter in the study.”"),
-        (Cell(x:13,z:12),"Service log: “Phone line passes through the back wing. Restore the breaker, then get out.”")
+    private let notes: [(cell:Cell, title:String, author:String, body:String)] = [
+        (Cell(x:4,z:14),"Three knocks","Waleed · handwritten note",
+         "Yamen,\n\nIt knocks three times. I heard it from the stairs first. When I opened the door, nobody was there.\n\nIf something answers from inside the house, leave the phone alone. It already knows your number."),
+        (Cell(x:13,z:2),"Where to hide","Yamen · torn notebook page",
+         "The floorboards in the hall are loose. I stepped on one and heard someone stop walking on the other side of the wall.\n\nThere’s a steel shelter in the study. Look for the green handle. Get the door shut before it reaches you."),
+        (Cell(x:13,z:12),"Breaker and phone line","Maintenance · service log",
+         "The house line runs behind the downstairs breaker. When I disconnected it, the handset rang anyway. Caller ID showed Waleed’s number.\n\nThree fuses are needed to restore the breaker. Once the power is back, use the green exit.")
     ]
+    private let reader = DocumentReader(frame:.zero)
     private let traps = [Cell(x:11,z:4),Cell(x:12,z:8),Cell(x:8,z:13)]
     private let pipeCells = [Cell(x:4,z:11),Cell(x:11,z:2),Cell(x:14,z:7),Cell(x:12,z:13)]
     private var pipeSources = [SCNAudioSource]()
@@ -152,6 +156,7 @@ final class GameController: UIViewController {
     private let clockLabel = UILabel(), eyebrow = UILabel(), footer = UILabel()
     private let helpButton = UIButton(type:.system)
     private let menuArtwork = UIImageView()
+    private let menuGradient = CAGradientLayer()
     private var nextBurp: Float = 9
     private var burpSources = [SCNAudioSource]()
     private var displayLink: CADisplayLink?
@@ -172,8 +177,13 @@ final class GameController: UIViewController {
         if let url = Bundle.main.url(forResource:"VCR_OSD_MONO_1.001",withExtension:"ttf") {
             CTFontManagerRegisterFontsForURL(url as CFURL,.process,nil)
         }
-        setupUI(); setupIntro(); buildWorld(); loadAudio()
-        showMenu("DON'T CALL\nWALEED", "Yamen’s about to make a call.\nIt’s 3:00 AM.","ENTER THE HOUSE   >")
+        setupUI(); setupIntro()
+        reader.frame = view.bounds
+        reader.autoresizingMask = [.flexibleWidth,.flexibleHeight]
+        reader.onClose = { [weak self] in self?.closeDocument() }
+        view.addSubview(reader)
+        buildWorld(); loadAudio()
+        showMenu("DON'T CALL\nWALEED", "One call wakes the house.","PLAY  ›")
         NotificationCenter.default.addObserver(self,selector:#selector(background),name:UIApplication.willResignActiveNotification,object:nil)
     }
     override func viewDidAppear(_ animated:Bool) {
@@ -188,9 +198,10 @@ final class GameController: UIViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         let compact = view.bounds.height < 600
-        titleLabel.font = vhs(compact ? 26 : 64)
-        detailLabel.font = vhs(compact ? 12 : 17)
-        menu.spacing = compact ? 4 : 22
+        titleLabel.font = .systemFont(ofSize:compact ? 36 : 86,weight:.black)
+        detailLabel.font = .systemFont(ofSize:compact ? 14 : 20,weight:.medium)
+        menu.spacing = compact ? 6 : 18
+        menuGradient.frame = shade.bounds
     }
     private func vhs(_ size:CGFloat) -> UIFont { UIFont(name:"VCROSDMono",size:size) ?? .monospacedSystemFont(ofSize:size,weight:.regular) }
     private func label(_ l:UILabel,_ size:CGFloat,_ color:UIColor = .white) { l.font = vhs(size); l.textColor = color; l.numberOfLines = 0 }
@@ -231,11 +242,20 @@ final class GameController: UIViewController {
         menuArtwork.contentMode = .scaleAspectFill; menuArtwork.clipsToBounds = true
         menuArtwork.frame = shade.bounds; menuArtwork.autoresizingMask = [.flexibleWidth,.flexibleHeight]
         shade.addSubview(menuArtwork)
-        let dim = UIView(frame:shade.bounds); dim.autoresizingMask = [.flexibleWidth,.flexibleHeight]
-        dim.backgroundColor = UIColor.black.withAlphaComponent(0.18); dim.isUserInteractionEnabled = false; shade.addSubview(dim)
-        label(eyebrow,12,UIColor(white:0.65,alpha:1)); eyebrow.text = "NIGHT 01  /  THE WRONG NUMBER"
+        let dim = UIView(frame:shade.bounds)
+        dim.autoresizingMask = [.flexibleWidth,.flexibleHeight]
+        dim.isUserInteractionEnabled = false
+        menuGradient.colors = [UIColor(white:0.012,alpha:0.98).cgColor,
+                               UIColor(white:0.012,alpha:0.74).cgColor,
+                               UIColor(white:0.012,alpha:0.14).cgColor]
+        menuGradient.locations = [0,0.54,1]
+        menuGradient.startPoint = CGPoint(x:0,y:0.4)
+        menuGradient.endPoint = CGPoint(x:1,y:0.5)
+        dim.layer.addSublayer(menuGradient)
+        shade.addSubview(dim)
+        label(eyebrow,12,UIColor(white:0.65,alpha:1)); eyebrow.text = "MADE BY BROTHER STUDIOS"
         label(clockLabel,23,UIColor(red:0.8,green:0.16,blue:0.14,alpha:1)); clockLabel.text = "AT 3 AM"
-        label(footer,11,UIColor(white:0.55,alpha:1)); footer.text = "HEADPHONES RECOMMENDED  /  FIRST PLAYABLE ALPHA"
+        label(footer,11,UIColor(white:0.55,alpha:1)); footer.text = "HEADPHONES RECOMMENDED"
         footer.translatesAutoresizingMaskIntoConstraints = false; shade.addSubview(footer)
         NSLayoutConstraint.activate([footer.leadingAnchor.constraint(equalTo:shade.safeAreaLayoutGuide.leadingAnchor,constant:48),footer.bottomAnchor.constraint(equalTo:shade.safeAreaLayoutGuide.bottomAnchor,constant:-24)])
         menu.axis = .vertical; menu.spacing = 18; menu.alignment = .fill; menu.translatesAutoresizingMaskIntoConstraints = false; shade.addSubview(menu)
@@ -244,12 +264,31 @@ final class GameController: UIViewController {
         titleLabel.layer.shadowOffset = CGSize(width:3,height:2); titleLabel.layer.shadowOpacity = 0.85; titleLabel.layer.shadowRadius = 0
         detailLabel.font = vhs(17); detailLabel.numberOfLines = 0; detailLabel.textColor = UIColor(white:0.76,alpha:1)
         button(startButton,"ENTER",#selector(menuAction)); button(soundButton,"SOUND: ON",#selector(toggleSound))
-        button(helpButton,"HOW TO SURVIVE",#selector(showHelp))
+        button(helpButton,"CONTROLS",#selector(showHelp))
         startButton.backgroundColor = UIColor(red:0.42,green:0.055,blue:0.045,alpha:0.92)
         startButton.layer.borderColor = UIColor(red:0.7,green:0.14,blue:0.1,alpha:1).cgColor
-        for b in [soundButton,helpButton] { b.backgroundColor = .clear; b.layer.borderWidth = 0; b.contentHorizontalAlignment = .left }
-        for v in [eyebrow,titleLabel,clockLabel,detailLabel,startButton,helpButton,soundButton] { menu.addArrangedSubview(v) }
-        NSLayoutConstraint.activate([menu.leadingAnchor.constraint(equalTo:shade.safeAreaLayoutGuide.leadingAnchor,constant:48),menu.centerYAnchor.constraint(equalTo:shade.centerYAnchor),menu.widthAnchor.constraint(equalTo:shade.safeAreaLayoutGuide.widthAnchor,multiplier:0.45),menu.widthAnchor.constraint(lessThanOrEqualToConstant:560)])
+        startButton.layer.cornerRadius = 7
+        startButton.contentHorizontalAlignment = .leading
+        startButton.contentEdgeInsets = UIEdgeInsets(top:9,left:19,bottom:9,right:19)
+        let secondary = UIStackView(arrangedSubviews:[helpButton,soundButton])
+        secondary.axis = .horizontal
+        secondary.spacing = 10
+        secondary.distribution = .fillEqually
+        for b in [soundButton,helpButton] {
+            b.backgroundColor = UIColor(white:0.10,alpha:0.64)
+            b.titleLabel?.font = vhs(12)
+            b.layer.cornerRadius = 5
+        }
+        for v in [eyebrow,titleLabel,clockLabel,detailLabel,startButton,secondary] { menu.addArrangedSubview(v) }
+        let safeMenu = shade.safeAreaLayoutGuide
+        let preferred = menu.widthAnchor.constraint(equalTo:safeMenu.widthAnchor,multiplier:0.48)
+        preferred.priority = .defaultHigh
+        NSLayoutConstraint.activate([
+            menu.leadingAnchor.constraint(equalTo:safeMenu.leadingAnchor,constant:42),
+            menu.centerYAnchor.constraint(equalTo:safeMenu.centerYAnchor,constant:-11),
+            preferred,
+            menu.widthAnchor.constraint(lessThanOrEqualToConstant:605)
+        ])
     }
     private func setupIntro() {
         introOverlay.frame = view.bounds
@@ -1342,6 +1381,7 @@ final class GameController: UIViewController {
 
     private func resetGame() {
         house = House()
+        reader.isHidden = true
         nextPipe = 7; nextTrap = 0; lastTrap = nil; readNotes = []; distanceSinceStep = 0
         movement = .zero; stepPhase = 0; lookRoll = 0
         elapsed = 0; nextBurp = 9; yaw = 0; pitch = 0; hidden = false; flashlight = true
@@ -1370,6 +1410,7 @@ final class GameController: UIViewController {
     }
 
     @objc private func background() {
+        if phase == .reading { closeDocument() }
         if phase == .intro { skipIntro() }
         if phase == .openingDoor { finishOpening() }
         pauseGame()
@@ -1478,6 +1519,23 @@ final class GameController: UIViewController {
         house.fuses.indices.first { !collected.contains($0) && near(house.fuses[$0],range:1.85) }
     }
     private func tell(_ text:String,duration:Float = 4) { message.text = text; messageUntil = elapsed+duration }
+    private func showDocument(title:String, author:String, body:String) {
+        phase = .reading
+        controls.isHidden = true
+        stick.reset()
+        movement = .zero
+        sceneView.isPlaying = false
+        players.values.forEach { $0.pause() }
+        stopSceneAudio()
+        reader.present(title:title,by:author,body:body)
+    }
+
+    private func closeDocument() {
+        guard phase == .reading else { return }
+        reader.isHidden = true
+        beginPlaying()
+    }
+
     @objc private func interact() {
         if phase == .downstairs { answerFrontDoor(); return }
         guard phase == .playing else { return }
@@ -1496,7 +1554,7 @@ final class GameController: UIViewController {
             readNotes.insert(note.cell)
             noteNodes[index].isHidden = true
             play("pickup")
-            tell(note.text,duration:8)
+            showDocument(title:note.title, author:note.author, body:note.body)
             return
         }
         if near(shelter,range:2) {

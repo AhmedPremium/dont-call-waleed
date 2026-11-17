@@ -1,5 +1,7 @@
 # Don't Call Waleed at 3 AM
 
+Made by Brother Studios.
+
 An original first-person horror prototype for iPad (iPadOS 17+) and iPhone, in landscape. Built with Apple's SceneKit and UIKit. No network access, ads, accounts, tracking, or in-app purchases.
 
 Yamen calls Waleed from bed at 3 AM. When the line breaks up, your first objective is to go downstairs and open the knocking front door. Skipping the cutscene takes you to the stairs objective. The upstairs bedroom, stairs, and front foyer connect to the compact main floor. You stay in the foyer after opening the door and waking up. Each attempt varies the interior utility doorways and fuse locations.

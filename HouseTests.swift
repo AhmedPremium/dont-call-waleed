@@ -33,5 +33,15 @@ import Testing
         opening.openFrontDoor()
     }
 
+    @Test func documentOpensAndCanClose() {
+        let reader = DocumentReader()
+        var closed = false
+        reader.onClose = { closed = true }
+        reader.present(title:"Three knocks",by:"Waleed",body:"Yamen, leave the phone alone.")
+        #expect(!reader.isHidden)
+        #expect(reader.accessibilityPerformEscape())
+        #expect(closed)
+    }
+
     @Test func exteriorIsSolid() { #expect(!House(seed:0).walkable(0,0)) }
 }
