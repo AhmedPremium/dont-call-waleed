@@ -14,13 +14,34 @@ final class Stick: UIView {
         accessibilityLabel = "Movement joystick"
     }
     required init?(coder:NSCoder) { fatalError("init(coder:) has not been implemented") }
-    override func layoutSubviews() { super.layoutSubviews(); layer.cornerRadius = bounds.width/2; reset() }
-    func reset() { vector = .zero; knob.frame = CGRect(x:bounds.midX-24,y:bounds.midY-24,width:48,height:48); knob.layer.cornerRadius = 24 }
-    private func track(_ touches:Set<UITouch>) {
-        guard let p = touches.first?.location(in:self) else { return }
-        let dx = p.x-bounds.midX, dy = p.y-bounds.midY, d = max(1,hypot(p.x-bounds.midX,p.y-bounds.midY)), r = bounds.width*0.36
-        vector = CGPoint(x:dx/d*min(d,r)/r,y:dy/d*min(d,r)/r)
-        knob.center = CGPoint(x:bounds.midX+vector.x*r,y:bounds.midY+vector.y*r)
+    private var travel: CGFloat { bounds.width * 0.325 }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layer.cornerRadius = bounds.width / 2
+        let diameter = bounds.width * 0.35
+        knob.bounds = CGRect(x: 0, y: 0, width: diameter, height: diameter)
+        knob.layer.cornerRadius = diameter / 2
+        positionKnob()
+    }
+
+    func reset() {
+        vector = .zero
+        positionKnob()
+    }
+
+    private func positionKnob() {
+        knob.center = CGPoint(x: bounds.midX + vector.x * travel,
+                             y: bounds.midY + vector.y * travel)
+    }
+
+    private func track(_ touches: Set<UITouch>) {
+        guard travel > 0, let point = touches.first?.location(in: self) else { return }
+        let dx = point.x - bounds.midX
+        let dy = point.y - bounds.midY
+        let divisor = max(travel, hypot(dx, dy))
+        vector = CGPoint(x: dx / divisor, y: dy / divisor)
+        positionKnob()
     }
     override func touchesBegan(_ t:Set<UITouch>,with e:UIEvent?) { track(t) }
     override func touchesMoved(_ t:Set<UITouch>,with e:UIEvent?) { track(t) }
@@ -182,7 +203,7 @@ final class GameController: UIViewController {
         let safe = controls.safeAreaLayoutGuide
         NSLayoutConstraint.activate([
             lookSurface.leadingAnchor.constraint(equalTo:controls.centerXAnchor),lookSurface.trailingAnchor.constraint(equalTo:controls.trailingAnchor),lookSurface.topAnchor.constraint(equalTo:controls.topAnchor),lookSurface.bottomAnchor.constraint(equalTo:controls.bottomAnchor),
-            stick.leadingAnchor.constraint(equalTo:safe.leadingAnchor,constant:30),stick.bottomAnchor.constraint(equalTo:safe.bottomAnchor,constant:-26),stick.widthAnchor.constraint(equalToConstant:138),stick.heightAnchor.constraint(equalTo:stick.widthAnchor),
+            stick.leadingAnchor.constraint(equalTo:safe.leadingAnchor,constant:30),stick.bottomAnchor.constraint(equalTo:safe.bottomAnchor,constant:-26),stick.widthAnchor.constraint(equalToConstant:traitCollection.userInterfaceIdiom == .pad ? 192 : 160),stick.heightAnchor.constraint(equalTo:stick.widthAnchor),
             status.topAnchor.constraint(equalTo:safe.topAnchor,constant:16),status.leadingAnchor.constraint(equalTo:safe.leadingAnchor,constant:22),
             objective.topAnchor.constraint(equalTo:status.bottomAnchor,constant:9),objective.leadingAnchor.constraint(equalTo:status.leadingAnchor),objective.widthAnchor.constraint(lessThanOrEqualTo:controls.widthAnchor,multiplier:0.7),
             pauseButton.trailingAnchor.constraint(equalTo:safe.trailingAnchor,constant:-20),pauseButton.topAnchor.constraint(equalTo:safe.topAnchor,constant:14),pauseButton.widthAnchor.constraint(equalToConstant:52),
