@@ -25,7 +25,7 @@ enum HouseMaterials {
     }
 
     private static let cloth = texture { g in
-        g.setFillColor(UIColor(white:0.83,alpha:1).cgColor)
+        g.setFillColor(UIColor(red:0.85,green:0.83,blue:0.80,alpha:1).cgColor)
         g.fill(CGRect(x:0,y:0,width:256,height:256))
         for n in stride(from:0,to:256,by:4) {
             g.setFillColor(UIColor(white:0.29,alpha:0.42).cgColor)
@@ -100,10 +100,17 @@ enum HouseMaterials {
     }
 
     private static func texture(_ draw:(CGContext) -> Void) -> UIImage {
-        let format = UIGraphicsImageRendererFormat()
-        format.opaque = true
-        format.scale = 1
-        let renderer = UIGraphicsImageRenderer(size:CGSize(width:256,height:256),format:format)
-        return renderer.image { draw($0.cgContext) }
+        // SceneKit expects color textures the simulator can sample as sRGB.
+        // A UIKit-rendered grayscale image can become an unsupported R8 sRGB texture.
+        let size = 256
+        guard let colorSpace = CGColorSpace(name:CGColorSpace.sRGB),
+              let context = CGContext(data:nil,width:size,height:size,bitsPerComponent:8,
+                                      bytesPerRow:size*4,space:colorSpace,
+                                      bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            return UIImage()
+        }
+        draw(context)
+        guard let image = context.makeImage() else { return UIImage() }
+        return UIImage(cgImage:image)
     }
 }
