@@ -2,9 +2,9 @@ import Foundation
 
 struct Cell: Hashable { var x: Int; var z: Int }
 
-enum House {
+struct House {
     static let tile: Float = 2.4
-    static let rows = [
+    private static let originalRows = [
         "#################",
         "#.......#.......#",
         "#.......#.......#",
@@ -25,19 +25,53 @@ enum House {
     ].map(Array.init)
     static let spawn = Cell(x: 2, z: 14)
     static let enemy = Cell(x: 14, z: 2)
-    static let fuses = [Cell(x: 2, z: 2), Cell(x: 14, z: 7), Cell(x: 2, z: 7)]
     static let panel = Cell(x: 14, z: 14)
     static let exit = Cell(x: 7, z: 15)
-    static let closets = [Cell(x: 1, z: 14), Cell(x: 1, z: 3), Cell(x: 15, z: 9)]
-    static let patrol = [Cell(x:14,z:2),Cell(x:2,z:2),Cell(x:2,z:8),Cell(x:14,z:8),Cell(x:14,z:14),Cell(x:3,z:13)]
-    static func open(_ c: Cell) -> Bool {
+    static let closets = [Cell(x: 1, z: 14), Cell(x: 1, z: 3), Cell(x: 15, z: 9), Cell(x: 24, z: 3), Cell(x: 24, z: 13)]
+    let rows: [[Character]]
+    let fuses: [Cell]
+    let patrol: [Cell]
+
+    init(seed: UInt64 = UInt64.random(in:UInt64.min...UInt64.max)) {
+        var state = seed
+        func select(_ count: Int) -> Int {
+            state = state &* 6364136223846793005 &+ 1442695040888963407
+            return Int((state >> 32) % UInt64(count))
+        }
+
+        var layout = Self.originalRows
+        let wings = [1...4, 6...9, 11...15]
+        for z in layout.indices {
+            let room = wings.contains { $0.contains(z) }
+            layout[z] += Array(repeating:room ? "." : "#",count:9)
+            layout[z].append("#")
+        }
+        for band in wings {
+            let doorway = band.lowerBound + select(band.count)
+            layout[doorway][16] = "."
+        }
+        for z in [5, 10] {
+            let doorway = 18 + select(6)
+            layout[z][doorway] = "."
+        }
+        let alternatives = [
+            [Cell(x:2,z:2), Cell(x:22,z:3), Cell(x:13,z:4)],
+            [Cell(x:23,z:8), Cell(x:19,z:7), Cell(x:24,z:6)],
+            [Cell(x:3,z:12), Cell(x:12,z:13), Cell(x:20,z:14)]
+        ]
+        rows = layout
+        fuses = alternatives.map { $0[select($0.count)] }
+        patrol = [Self.enemy,Cell(x:23,z:3),Cell(x:2,z:2),Cell(x:2,z:8),
+                  Cell(x:21,z:8),Cell(x:23,z:13),Cell(x:14,z:14),Cell(x:3,z:13)]
+    }
+    func open(_ c: Cell) -> Bool {
         c.z >= 0 && c.z < rows.count && c.x >= 0 && c.x < rows[c.z].count && rows[c.z][c.x] != "#"
     }
     static func cell(_ x: Float, _ z: Float) -> Cell { Cell(x:Int(floor(x/tile)),z:Int(floor(z/tile))) }
-    static func walkable(_ x: Float, _ z: Float, radius: Float = 0.25) -> Bool {
-        [-radius,radius].allSatisfy { dx in [-radius,radius].allSatisfy { dz in open(cell(x+dx,z+dz)) } }
+    func walkable(_ x: Float, _ z: Float, radius: Float = 0.25) -> Bool {
+        [-radius,radius].allSatisfy { dx in [-radius,radius].allSatisfy { dz in open(Self.cell(x+dx,z+dz)) } }
     }
-    static func path(from: Cell, to: Cell) -> [Cell] {
+    func path(from: Cell, to: Cell) -> [Cell] {
         guard open(from),open(to),from != to else { return [] }
         var queue = [from], seen: Set<Cell> = [from], previous: [Cell:Cell] = [:], index = 0
         while index < queue.count {
@@ -56,7 +90,7 @@ enum House {
     }
     static func reachedWaypoint(_ remaining: Float) -> Bool { remaining <= 0.012 }
 
-    static func searchCells(near origin: Cell) -> [Cell] {
+    func searchCells(near origin: Cell) -> [Cell] {
         var candidates = [Cell]()
         for dz in -3...3 {
             for dx in -3...3 where abs(dx)+abs(dz) >= 2 && abs(dx)+abs(dz) <= 3 {
@@ -68,12 +102,12 @@ enum House {
         return Array(candidates.shuffled().prefix(3))
     }
 
-    static func canCatch(enemyX: Float, enemyZ: Float, playerX: Float, playerZ: Float) -> Bool {
+    func canCatch(enemyX: Float, enemyZ: Float, playerX: Float, playerZ: Float) -> Bool {
         let close = hypot(playerX-enemyX,playerZ-enemyZ) <= 1.30
         return close && visible(enemyX,enemyZ,playerX,playerZ)
     }
 
-    static func walkableBetween(_ ax: Float,_ az: Float,_ bx: Float,_ bz: Float,radius: Float) -> Bool {
+    func walkableBetween(_ ax: Float,_ az: Float,_ bx: Float,_ bz: Float,radius: Float) -> Bool {
         let steps = max(1,Int(ceil(hypot(bx-ax,bz-az)/0.10)))
         for i in 0...steps {
             let t = Float(i)/Float(steps)
@@ -82,11 +116,11 @@ enum House {
         return true
     }
 
-    static func visible(_ ax:Float,_ az:Float,_ bx:Float,_ bz:Float) -> Bool {
+    func visible(_ ax:Float,_ az:Float,_ bx:Float,_ bz:Float) -> Bool {
         let steps = max(1,Int(ceil(hypot(bx-ax,bz-az)/0.10)))
         for i in 0...steps {
             let t = Float(i)/Float(steps)
-            if !open(cell(ax+(bx-ax)*t,az+(bz-az)*t)) { return false }
+            if !open(Self.cell(ax+(bx-ax)*t,az+(bz-az)*t)) { return false }
         }
         return true
     }

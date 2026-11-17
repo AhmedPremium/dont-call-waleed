@@ -12,8 +12,8 @@ settings:
     CODE_SIGNING_REQUIRED: "NO"
     CODE_SIGNING_ALLOWED: "NO"
     CODE_SIGN_IDENTITY: ""
-    MARKETING_VERSION: "0.2.0"
-    CURRENT_PROJECT_VERSION: "2"
+    MARKETING_VERSION: "0.3.0"
+    CURRENT_PROJECT_VERSION: "3"
 targets:
   DontCallWaleed:
     type: application
@@ -31,9 +31,13 @@ targets:
       - path: ContentView.swift
       - path: House.swift
       - path: GameController.swift
+      - path: IntroPhoneView.swift
       - path: Resources
       - path: Artwork-Credit.txt
       - path: blackout.wav
+      - path: pipe-knock.wav
+      - path: pipe-hiss.wav
+      - path: scare-burp.wav
       - path: burp1.wav
       - path: burp2.wav
       - path: burp3.wav

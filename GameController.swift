@@ -34,14 +34,18 @@ final class GameController: UIViewController {
         case idle, incoming(until: Float), outgoing(started: Float)
     }
 
-    private let flashlightIntensity: CGFloat = 2400
+    private let flashlightIntensity: CGFloat = 1100
+    private var house = House()
     private let rooms: [(name: String, landmark: Cell, phone: Cell)] = [
         ("BEDROOM", Cell(x: 4, z: 1), Cell(x: 4, z: 2)),
         ("KITCHEN", Cell(x: 12, z: 1), Cell(x: 12, z: 2)),
         ("LOUNGE", Cell(x: 4, z: 6), Cell(x: 4, z: 7)),
         ("STUDY", Cell(x: 12, z: 6), Cell(x: 12, z: 7)),
         ("LAUNDRY", Cell(x: 4, z: 11), Cell(x: 4, z: 12)),
-        ("WORKSHOP", Cell(x: 12, z: 11), Cell(x: 12, z: 12))
+        ("WORKSHOP", Cell(x: 12, z: 11), Cell(x: 12, z: 12)),
+        ("DINING ROOM", Cell(x: 21, z: 1), Cell(x: 21, z: 2)),
+        ("GUEST ROOM", Cell(x: 21, z: 6), Cell(x: 21, z: 7)),
+        ("SUNROOM", Cell(x: 21, z: 11), Cell(x: 21, z: 12))
     ]
     private var phase = Phase.title
     private let sceneView = SCNView()
@@ -53,9 +57,30 @@ final class GameController: UIViewController {
     private var enemyAwake = false
     private var lastKnownPlayer: Cell?
     private var searchRoute = [Cell]()
+    private let shelter = Cell(x:24,z:6)
+    private let notes: [(cell:Cell, text:String)] = [
+        (Cell(x:4,z:14),"Waleed’s note: “It knocks three times. If it answers, leave the phone alone.”"),
+        (Cell(x:21,z:2),"Yamen’s message: “The boards by the dining room set it off. There’s a steel shelter in the guest room.”"),
+        (Cell(x:22,z:12),"Service log: “Phone line passes through the back wing. Restore the breaker, then get out.”")
+    ]
+    private let traps = [Cell(x:17,z:3),Cell(x:21,z:8),Cell(x:18,z:13)]
+    private let pipeCells = [Cell(x:4,z:11),Cell(x:19,z:2),Cell(x:24,z:7),Cell(x:22,z:13)]
+    private var pipeSources = [SCNAudioSource]()
+    private var nextPipe: Float = 7
+    private var nextTrap: Float = 0
+    private var lastTrap: Cell?
+    private var readNotes = Set<Cell>()
+    private var noteNodes = [SCNNode]()
+    private var thermalScreens = [SCNNode]()
+    private var lightPanels = [SCNNode]()
+    private var lookRoll: Float = 0
+    private var stepPhase: Float = 0
+    private var movement = SIMD2<Float>.zero
+    private var enemyBend = [SCNNode]()
     private var houseAmbient: SCNLight?
     private let introOverlay = UIView()
-    private let introCaption = UILabel(), introPhone = UILabel()
+    private let introCaption = UILabel()
+    private let introPhone = IntroPhoneView(frame:.zero)
     private var introBeat = -1
     private var introElapsed: Float = 0
     private var phoneState = PhoneState.idle
@@ -185,14 +210,6 @@ final class GameController: UIViewController {
         introCaption.layer.shadowRadius = 5
         introCaption.layer.shadowOffset = .zero
 
-        label(introPhone,16,UIColor(red:0.60,green:0.83,blue:0.69,alpha:1))
-        introPhone.textAlignment = .center
-        introPhone.backgroundColor = UIColor(white:0.035,alpha:0.95)
-        introPhone.layer.borderColor = UIColor(white:0.45,alpha:1).cgColor
-        introPhone.layer.borderWidth = 1
-        introPhone.layer.cornerRadius = 12
-        introPhone.clipsToBounds = true
-
         let skip = UIButton(type:.system)
         button(skip,"SKIP",#selector(skipIntro))
         for item in [introCaption,introPhone,skip] {
@@ -200,11 +217,14 @@ final class GameController: UIViewController {
             introOverlay.addSubview(item)
         }
         let safe = introOverlay.safeAreaLayoutGuide
+        let phoneWidth = introPhone.widthAnchor.constraint(equalTo:safe.heightAnchor,multiplier:0.39)
+        phoneWidth.priority = .defaultHigh
         NSLayoutConstraint.activate([
-            introPhone.centerXAnchor.constraint(equalTo:safe.centerXAnchor),
+            introPhone.centerXAnchor.constraint(equalTo:safe.centerXAnchor,constant:40),
             introPhone.centerYAnchor.constraint(equalTo:safe.centerYAnchor,constant:18),
-            introPhone.widthAnchor.constraint(equalToConstant:220),
-            introPhone.heightAnchor.constraint(equalToConstant:118),
+            phoneWidth,
+            introPhone.widthAnchor.constraint(lessThanOrEqualToConstant:218),
+            introPhone.heightAnchor.constraint(equalTo:introPhone.widthAnchor,multiplier:336.0/180.0),
             introCaption.leadingAnchor.constraint(equalTo:safe.leadingAnchor,constant:18),
             introCaption.trailingAnchor.constraint(equalTo:safe.trailingAnchor,constant:-18),
             introCaption.bottomAnchor.constraint(equalTo:safe.bottomAnchor,constant:-24),
@@ -224,23 +244,15 @@ final class GameController: UIViewController {
         let g = SCNSphere(radius:r); g.segmentCount = 16; g.materials = [material(c,glow:glow)]; let n = SCNNode(geometry:g); n.position = p; parent.addChildNode(n); return n
     }
     private func buildWorld() {
-        world = SCNScene(); lamps = []; fuseNodes = []; fridge = nil; world.background.contents = UIColor.black
-        world.fogColor = UIColor(red:0.025,green:0.03,blue:0.035,alpha:1); world.fogStartDistance = 6; world.fogEndDistance = 22
+        world = SCNScene(); lamps = []; lightPanels = []; thermalScreens = []; fuseNodes = []; fridge = nil; world.background.contents = UIColor.black
+        world.fogColor = UIColor(red:0.025,green:0.03,blue:0.035,alpha:1); world.fogStartDistance = 12; world.fogEndDistance = 35
         let ambient = SCNNode(); ambient.light = SCNLight(); ambient.light?.type = .ambient; ambient.light?.color = UIColor(red:0.22,green:0.27,blue:0.36,alpha:1); ambient.light?.intensity = 240; world.rootNode.addChildNode(ambient)
         houseAmbient = ambient.light
-        let colors = [UIColor(red:0.35,green:0.32,blue:0.27,alpha:1),UIColor(red:0.24,green:0.3,blue:0.28,alpha:1),UIColor(red:0.3,green:0.27,blue:0.27,alpha:1)]
-        for z in House.rows.indices { for x in House.rows[z].indices {
-            let p = point(Cell(x:x,z:z)), t = House.tile
-            if !House.open(Cell(x:x,z:z)) {
-                box(SCNVector3(t,3.3,t),SCNVector3(p.x,1.65,p.z),colors[min(2,z/6)])
-                box(SCNVector3(t+0.02,0.14,t+0.02),SCNVector3(p.x,0.1,p.z),UIColor(white:0.13,alpha:1))
-            } else {
-                let c = (x+z)%2 == 0 ? UIColor(red:0.19,green:0.13,blue:0.09,alpha:1) : UIColor(red:0.16,green:0.11,blue:0.08,alpha:1)
-                box(SCNVector3(t,0.08,t),SCNVector3(p.x,-0.04,p.z),c)
-                box(SCNVector3(t,0.08,t),SCNVector3(p.x,3.34,p.z),UIColor(white:0.18,alpha:1))
-                for s in [Float(-0.8),0,0.8] { box(SCNVector3(0.015,0.005,t),SCNVector3(p.x+s,0.005,p.z),UIColor(white:0.045,alpha:1)) }
-            }
-        } }
+        buildSurfaces()
+        addRoomLamp(at:point(Cell(x:3,z:13)))
+        box(SCNVector3(1.68,0.45,0.73),point(Cell(x:4,z:13),y:0.30),UIColor(red:0.30,green:0.22,blue:0.16,alpha:1))
+        box(SCNVector3(1.62,0.13,0.69),point(Cell(x:4,z:13),y:0.58),UIColor(red:0.37,green:0.45,blue:0.39,alpha:1))
+        box(SCNVector3(1.62,0.51,0.16),SCNVector3(point(Cell(x:4,z:13)).x,0.68,point(Cell(x:4,z:13)).z-0.31),UIColor(red:0.37,green:0.45,blue:0.39,alpha:1))
         let rugColors: [UIColor] = [
             UIColor(red:0.23,green:0.08,blue:0.10,alpha:1),
             UIColor(red:0.14,green:0.24,blue:0.21,alpha:1),
@@ -253,22 +265,14 @@ final class GameController: UIViewController {
             let p = point(room.phone)
             box(SCNVector3(2.8,0.015,3.8),SCNVector3(p.x,0.02,p.z),rugColors[index])
             furnishRoom(index, at: point(room.landmark))
-            let lamp = SCNNode(); lamp.position = SCNVector3(p.x,2.95,p.z); lamp.light = SCNLight(); lamp.light?.type = .omni
-            lamp.light?.color = UIColor(red:1,green:0.62,blue:0.28,alpha:1); lamp.light?.intensity = 85; lamp.light?.attenuationStartDistance = 1; lamp.light?.attenuationEndDistance = 8
-            world.rootNode.addChildNode(lamp); lamps.append(lamp)
-            box(SCNVector3(0.6,0.06,0.6),SCNVector3(p.x,3.16,p.z),UIColor(white:0.65,alpha:1))
+            addRoomLamp(at:p)
         }
-        for c in [Cell(x:6,z:1),Cell(x:10,z:1),Cell(x:6,z:6),Cell(x:10,z:11)] {
-            let p = point(c)
-            box(SCNVector3(2,0.55,1.5),SCNVector3(p.x,0.3,p.z),UIColor(red:0.15,green:0.09,blue:0.06,alpha:1))
-            box(SCNVector3(1.9,0.16,1.45),SCNVector3(p.x,0.66,p.z),UIColor(red:0.33,green:0.33,blue:0.3,alpha:1))
-            box(SCNVector3(0.5,0.13,1),SCNVector3(p.x-0.55,0.8,p.z),UIColor(white:0.55,alpha:1))
-        }
+        buildSurvivalProps()
         for c in House.closets { let p = point(c)
             box(SCNVector3(0.85,2.6,1.7),SCNVector3(p.x-0.65,1.3,p.z),UIColor(red:0.13,green:0.08,blue:0.045,alpha:1))
             box(SCNVector3(0.04,0.1,0.18),SCNVector3(p.x-0.19,1.2,p.z),.systemYellow,glow:true)
         }
-        for c in House.fuses { let p = point(c)
+        for c in house.fuses { let p = point(c)
             box(SCNVector3(1.2,0.8,0.7),SCNVector3(p.x,0.4,p.z-0.75),UIColor(white:0.15,alpha:1))
             let n = box(SCNVector3(0.18,0.32,0.18),SCNVector3(p.x,1,p.z-0.75),.systemCyan,glow:true)
             n.runAction(.repeatForever(.sequence([.moveBy(x:0,y:0.12,z:0,duration:0.8),.moveBy(x:0,y:-0.12,z:0,duration:0.8)]))); fuseNodes.append(n)
@@ -282,21 +286,29 @@ final class GameController: UIViewController {
         enemy = SCNNode()
         enemy.position = point(House.enemy)
         world.rootNode.addChildNode(enemy)
-        box(SCNVector3(0.65,1.25,0.35),SCNVector3(0,1.35,0),UIColor(white:0.04,alpha:1),parent:enemy)
+        let coat = UIColor(red:0.115,green:0.127,blue:0.115,alpha:1)
+        let cloth = UIColor(red:0.095,green:0.088,blue:0.082,alpha:1)
+        let skin = UIColor(red:0.37,green:0.29,blue:0.24,alpha:1)
+        let torso = sphere(0.44,SCNVector3(0,1.44,0),coat,enemy)
+        torso.scale = SCNVector3(0.81,1.34,0.54)
+        let collar = sphere(0.23,SCNVector3(0,1.95,0.015),cloth,enemy)
+        collar.scale = SCNVector3(1.46,0.69,1.15)
+        box(SCNVector3(0.027,0.72,0.02),SCNVector3(0.04,1.42,-0.235),.darkGray,parent:enemy)
         enemyLimbs.removeAll()
-        for x in [Float(-0.43), 0.43] {
-            let shoulder = SCNNode()
-            shoulder.position = SCNVector3(x,1.9,0)
-            enemy.addChildNode(shoulder)
-            box(SCNVector3(0.16,1.45,0.20),SCNVector3(0,-0.61,0),UIColor(white:0.045,alpha:1),parent:shoulder)
-            enemyLimbs.append(shoulder)
+        enemyBend.removeAll()
+        for x in [Float(-0.37),0.37] {
+            let shoulder = joint(root:enemy,at:SCNVector3(x,1.83,0))
+            roundedLimb(at:SCNVector3(0,-0.21,0),length:0.46,radius:0.105,color:coat,parent:shoulder)
+            let elbow = joint(root:shoulder,at:SCNVector3(0,-0.43,0))
+            roundedLimb(at:SCNVector3(0,-0.19,0),length:0.43,radius:0.076,color:coat,parent:elbow)
+            sphere(0.075,SCNVector3(0,-0.43,-0.018),skin,elbow).scale = SCNVector3(0.75,1.31,0.66)
         }
-        for x in [Float(-0.20), 0.20] {
-            let hip = SCNNode()
-            hip.position = SCNVector3(x,0.88,0)
-            enemy.addChildNode(hip)
-            box(SCNVector3(0.16,0.9,0.19),SCNVector3(0,-0.42,0),UIColor(white:0.025,alpha:1),parent:hip)
-            enemyLimbs.append(hip)
+        for x in [Float(-0.17),0.17] {
+            let hip = joint(root:enemy,at:SCNVector3(x,0.98,0))
+            roundedLimb(at:SCNVector3(0,-0.22,0),length:0.49,radius:0.104,color:cloth,parent:hip)
+            let knee = joint(root:hip,at:SCNVector3(0,-0.45,0))
+            roundedLimb(at:SCNVector3(0,-0.20,0),length:0.44,radius:0.083,color:cloth,parent:knee)
+            box(SCNVector3(0.18,0.13,0.30),SCNVector3(0,-0.47,-0.051),.black,parent:knee)
         }
         let face = makeFace()
         enemyHead = face.head
@@ -304,20 +316,127 @@ final class GameController: UIViewController {
         enemyHead.position = SCNVector3(0,2.2,0)
         enemyEyes.forEach { $0.isHidden = true }
         enemy.addChildNode(enemyHead)
-        camera = SCNNode(); camera.camera = SCNCamera(); camera.camera?.fieldOfView = 76; camera.camera?.zNear = 0.06; camera.camera?.zFar = 45
+        camera = SCNNode(); camera.camera = SCNCamera(); camera.camera?.fieldOfView = 76; camera.camera?.zNear = 0.06; camera.camera?.zFar = 58
         camera.camera?.vignettingIntensity = 0.8; camera.camera?.vignettingPower = 1.8
         camera.position = point(House.spawn,y:1.6); world.rootNode.addChildNode(camera)
         torch = SCNNode(); torch.light = SCNLight(); torch.light?.type = .spot; torch.light?.color = UIColor(red:0.95,green:0.91,blue:0.78,alpha:1); torch.light?.intensity = flashlightIntensity
-        torch.light?.spotInnerAngle = 8
-        torch.light?.spotOuterAngle = 19
+        torch.light?.spotInnerAngle = 24
+        torch.light?.spotOuterAngle = 65
         torch.light?.attenuationStartDistance = 1.4
-        torch.light?.attenuationEndDistance = 11
+        torch.light?.attenuationEndDistance = 18
         torch.light?.castsShadow = true
         torch.light?.shadowMapSize = CGSize(width:512,height:512)
         torch.light?.shadowRadius = 2
         camera.addChildNode(torch)
         sceneView.scene = world; sceneView.pointOfView = camera; sceneView.audioListener = camera
     }
+    private func joint(root:SCNNode,at position:SCNVector3) -> SCNNode {
+        let node = SCNNode()
+        node.position = position
+        root.addChildNode(node)
+        if root === enemy { enemyLimbs.append(node) } else { enemyBend.append(node) }
+        return node
+    }
+
+    private func roundedLimb(at position:SCNVector3,length:CGFloat,radius:CGFloat,color:UIColor,parent:SCNNode) {
+        let geometry = SCNCapsule(capRadius:radius,height:length)
+        geometry.radialSegmentCount = 12
+        geometry.materials = [material(color)]
+        let node = SCNNode(geometry:geometry)
+        node.position = position
+        parent.addChildNode(node)
+    }
+
+    private func addRoomLamp(at p:SCNVector3) {
+        let lamp = SCNNode()
+        lamp.position = SCNVector3(p.x,2.99,p.z)
+        let light = SCNLight()
+        light.type = .omni
+        light.color = UIColor(red:1,green:0.86,blue:0.69,alpha:1)
+        light.intensity = 0
+        light.attenuationStartDistance = 2
+        light.attenuationEndDistance = 10
+        lamp.light = light
+        world.rootNode.addChildNode(lamp)
+        lamps.append(lamp)
+        box(SCNVector3(0.78,0.12,0.53),SCNVector3(p.x,3.23,p.z),.darkGray)
+        let panel = box(SCNVector3(0.66,0.045,0.44),SCNVector3(p.x,3.15,p.z),.white,glow:true)
+        lightPanels.append(panel)
+    }
+
+    private func setRoomPower(_ intensity:CGFloat) {
+        lamps.forEach { $0.light?.intensity = intensity }
+        lightPanels.forEach { $0.isHidden = intensity <= 0 }
+        thermalScreens.forEach { $0.isHidden = intensity <= 0 }
+    }
+
+    private func buildSurfaces() {
+        let wall = material(UIColor(white:0.73,alpha:1))
+        let hardwood = material(UIColor(red:0.39,green:0.25,blue:0.17,alpha:1))
+        let ceiling = material(UIColor(white:0.37,alpha:1))
+        let trim = material(UIColor(red:0.22,green:0.14,blue:0.10,alpha:1))
+        let plaster = UIGraphicsImageRenderer(size:CGSize(width:128,height:128)).image { drawing in
+            let g = drawing.cgContext
+            g.setFillColor(UIColor(red:0.55,green:0.56,blue:0.50,alpha:1).cgColor)
+            g.fill(CGRect(x:0,y:0,width:128,height:128))
+            for i in 0..<280 {
+                let x = (i*73+i/4)%128, y = (i*29+i/7)%128
+                g.setFillColor(UIColor(white:i.isMultiple(of:3) ? 0.2 : 0.8,alpha:0.11).cgColor)
+                g.fill(CGRect(x:x,y:y,width:3+(i%5),height:1+(i%3)))
+            }
+        }
+        let wood = UIGraphicsImageRenderer(size:CGSize(width:128,height:128)).image { drawing in
+            let g = drawing.cgContext
+            let tones = [0.32,0.39,0.34,0.42,0.37,0.31,0.36,0.40]
+            for (index,tone) in tones.enumerated() {
+                let t = CGFloat(tone)
+                g.setFillColor(UIColor(red:t+0.13,green:t,blue:t-0.08,alpha:1).cgColor)
+                g.fill(CGRect(x:0,y:index*16,width:128,height:16))
+                g.setFillColor(UIColor(white:0.12,alpha:0.72).cgColor)
+                g.fill(CGRect(x:0,y:index*16,width:128,height:1))
+                g.fill(CGRect(x:(index*39)%128,y:index*16,width:1,height:16))
+            }
+            for i in 0..<95 {
+                g.setFillColor(UIColor(white:i.isMultiple(of:3) ? 0.08 : 0.73,alpha:0.13).cgColor)
+                g.fill(CGRect(x:(i*51)%128,y:(i*17)%128,width:7+(i%20),height:1))
+            }
+        }
+        wall.diffuse.contents = plaster
+        hardwood.diffuse.contents = wood
+        for material in [wall,hardwood] {
+            material.diffuse.wrapS = .repeat
+            material.diffuse.wrapT = .repeat
+            material.diffuse.mipFilter = .linear
+        }
+        func strip(_ material:SCNMaterial,_ width:Float,_ height:Float,_ depth:Float,_ x:Float,_ y:Float,_ z:Float,_ tiles:Int) {
+            let mesh = SCNBox(width:CGFloat(width),height:CGFloat(height),length:CGFloat(depth),chamferRadius:0)
+            let surfaces = material.copy() as! SCNMaterial
+            surfaces.diffuse.contentsTransform = SCNMatrix4MakeScale(Float(tiles),1,1)
+            mesh.materials = [surfaces]
+            let node = SCNNode(geometry:mesh)
+            node.position = SCNVector3(x,y,z)
+            world.rootNode.addChildNode(node)
+        }
+        for (z,row) in house.rows.enumerated() {
+            var start = 0
+            while start < row.count {
+                let solid = row[start] == "#"
+                var end = start+1
+                while end < row.count && (row[end] == "#") == solid { end += 1 }
+                let t = House.tile, width = Float(end-start)*t
+                let x = Float(start)*t+width/2, y = (Float(z)+0.5)*t
+                if solid {
+                    strip(wall,width,3.3,t,x,1.65,y,end-start)
+                    strip(trim,width+0.02,0.14,t+0.025,x,0.10,y,1)
+                } else {
+                    strip(hardwood,width,0.08,t,x,-0.04,y,end-start)
+                    strip(ceiling,width,0.08,t,x,3.34,y,1)
+                }
+                start = end
+            }
+        }
+    }
+
     private func furnishRoom(_ index: Int, at p: SCNVector3) {
         let wall = p.z - 1.02
         let darkMetal = UIColor(white:0.15,alpha:1)
@@ -328,6 +447,7 @@ final class GameController: UIViewController {
             box(SCNVector3(1.45,0.28,0.65),SCNVector3(p.x,0.36,wall+0.31),UIColor(red:0.28,green:0.09,blue:0.11,alpha:1))
             box(SCNVector3(0.58,0.14,0.29),SCNVector3(p.x+0.26,0.57,wall+0.20),UIColor(white:0.60,alpha:1))
         case 1: // Kitchen: two-door fridge with an audible compressor.
+            buildKitchen(at:p)
             fridge = box(SCNVector3(1.04,2.26,0.39),SCNVector3(p.x,1.13,wall+0.09),enamel)
             box(SCNVector3(1.02,0.045,0.03),SCNVector3(p.x,1.54,wall+0.29),darkMetal)
             for y in [Float(1.24), 1.77] {
@@ -337,6 +457,7 @@ final class GameController: UIViewController {
         case 2: // Lounge: an old television comes and goes in the dark.
             box(SCNVector3(1.48,0.94,0.42),SCNVector3(p.x,1.41,wall+0.07),darkMetal)
             let screen = box(SCNVector3(1.18,0.70,0.018),SCNVector3(p.x-0.04,1.43,wall+0.29),UIColor(red:0.14,green:0.43,blue:0.48,alpha:1),glow:true)
+            thermalScreens.append(screen)
             screen.runAction(.repeatForever(.sequence([
                 .fadeOpacity(to:0.18,duration:0.06), .wait(duration:0.14),
                 .fadeOpacity(to:0.86,duration:0.32), .wait(duration:2.1),
@@ -356,20 +477,144 @@ final class GameController: UIViewController {
             let door = sphere(0.40,SCNVector3(p.x,0.58,wall+0.34),darkMetal,world.rootNode)
             door.scale.z = 0.10
             box(SCNVector3(0.25,0.055,0.02),SCNVector3(p.x+0.27,1.10,wall+0.34),.systemOrange,glow:true)
-        default: // Workshop: amber tool rack and hanging spanners.
+        case 5: // Workshop: amber tool rack and hanging spanners.
             box(SCNVector3(1.82,1.08,0.11),SCNVector3(p.x,1.58,wall),UIColor(red:0.35,green:0.16,blue:0.06,alpha:1))
             for i in 0..<5 {
                 let tool = box(SCNVector3(0.08,0.40,0.07),SCNVector3(p.x-0.64+Float(i)*0.32,1.6,wall+0.10),enamel)
                 tool.eulerAngles.z = i.isMultiple(of:2) ? -0.22 : 0.22
             }
+        case 6:
+            box(SCNVector3(2.4,0.12,1.18),SCNVector3(p.x,0.89,wall+0.65),UIColor(red:0.25,green:0.15,blue:0.092,alpha:1))
+            for x in [Float(-0.89),0.89] {
+                box(SCNVector3(0.12,0.84,0.80),SCNVector3(p.x+x,0.42,wall+0.65),darkMetal)
+            }
+            let plate = sphere(0.24,SCNVector3(p.x+0.51,0.97,wall+0.69),enamel,world.rootNode)
+            plate.scale.y = 0.11
+        case 7:
+            box(SCNVector3(2.05,0.40,1.44),SCNVector3(p.x,0.30,wall+0.56),darkMetal)
+            box(SCNVector3(2.03,0.14,1.45),SCNVector3(p.x,0.56,wall+0.56),UIColor(red:0.49,green:0.47,blue:0.41,alpha:1))
+            box(SCNVector3(1.58,0.06,1.09),SCNVector3(p.x,0.66,wall+0.72),UIColor(red:0.14,green:0.27,blue:0.25,alpha:1))
+        default:
+            box(SCNVector3(3.15,1.38,0.13),SCNVector3(p.x,1.97,wall),darkMetal)
+            for x in [Float(-1.04),0,1.04] {
+                box(SCNVector3(0.94,1.22,0.04),SCNVector3(p.x+x,1.97,wall+0.09),UIColor(red:0.12,green:0.24,blue:0.30,alpha:1))
+            }
         }
+    }
+
+    private func buildKitchen(at p:SCNVector3) {
+        let walnut = UIColor(red:0.44,green:0.25,blue:0.13,alpha:1)
+        let granite = UIColor(red:0.29,green:0.30,blue:0.28,alpha:1)
+        let steel = UIColor(red:0.56,green:0.60,blue:0.59,alpha:1)
+        let wall = p.z-1.10
+        for slot in [-2,-1,1,2] {
+            let x = p.x+Float(slot)*1.18
+            box(SCNVector3(1.15,0.88,0.56),SCNVector3(x,0.45,wall+0.23),walnut)
+            box(SCNVector3(1.18,0.078,0.65),SCNVector3(x,0.92,wall+0.23),granite)
+            box(SCNVector3(0.34,0.044,0.068),SCNVector3(x,0.70,wall+0.53),steel)
+            box(SCNVector3(1.10,0.68,0.31),SCNVector3(x,2.01,wall+0.11),walnut)
+            box(SCNVector3(0.065,0.13,0.038),SCNVector3(x+0.34,1.81,wall+0.29),steel)
+            for n in 0..<4 {
+                box(SCNVector3(0.265,0.36,0.035),SCNVector3(x-0.42+Float(n)*0.28,1.16,wall),n.isMultiple(of:2) ? steel : granite)
+            }
+        }
+        let sink = p.x-2.36
+        box(SCNVector3(0.71,0.025,0.42),SCNVector3(sink,0.972,wall+0.24),steel)
+        box(SCNVector3(0.55,0.028,0.31),SCNVector3(sink,0.984,wall+0.24),.darkGray)
+        box(SCNVector3(0.055,0.23,0.052),SCNVector3(sink,1.09,wall+0.10),steel)
+        box(SCNVector3(0.055,0.052,0.19),SCNVector3(sink,1.19,wall+0.16),steel)
+        let oven = p.x+2.36
+        box(SCNVector3(0.99,0.57,0.032),SCNVector3(oven,0.43,wall+0.53),UIColor(white:0.085,alpha:1))
+        box(SCNVector3(0.72,0.032,0.056),SCNVector3(oven,0.68,wall+0.567),steel)
+        for x in [Float(-0.30),0.30] {
+            let burner = sphere(0.19,SCNVector3(oven+x,0.978,wall+0.27),.black,world.rootNode)
+            burner.scale.y = 0.085
+        }
+    }
+
+    private func buildSurvivalProps() {
+        let steel = UIColor(red:0.24,green:0.30,blue:0.29,alpha:1)
+        let alcove = point(shelter)
+        box(SCNVector3(1.60,2.40,0.25),SCNVector3(alcove.x,1.20,alcove.z-0.98),steel)
+        for y in [Float(0.38),0.86,1.34,1.84] {
+            box(SCNVector3(1.46,0.055,0.06),SCNVector3(alcove.x,y,alcove.z-0.82),.darkGray)
+        }
+        box(SCNVector3(0.37,0.13,0.10),SCNVector3(alcove.x+0.37,1.10,alcove.z-0.79),.systemGreen,glow:true)
+        noteNodes = notes.map { note in
+            let p = point(note.cell)
+            box(SCNVector3(0.75,0.40,0.47),SCNVector3(p.x,0.20,p.z),.darkGray)
+            let sheet = box(SCNVector3(0.32,0.018,0.24),SCNVector3(p.x,0.414,p.z),UIColor(red:0.72,green:0.63,blue:0.36,alpha:1),glow:true)
+            sheet.eulerAngles.y = 0.14
+            return sheet
+        }
+        for cell in traps {
+            let p = point(cell,y:0.018)
+            box(SCNVector3(1.42,0.035,0.43),p,UIColor(red:0.39,green:0.24,blue:0.13,alpha:1))
+            for x in [Float(-0.57),0.58] {
+                box(SCNVector3(0.045,0.045,0.25),SCNVector3(p.x+x,p.y,p.z),.darkGray)
+            }
+        }
+        for cell in pipeCells {
+            let p = point(cell)
+            let copper = UIColor(red:0.43,green:0.27,blue:0.16,alpha:1)
+            for offset in [Float(-0.46), 0.46] {
+                let pipe = SCNCylinder(radius:0.065,height:4.0)
+                pipe.radialSegmentCount = 12
+                pipe.materials = [material(copper)]
+                let node = SCNNode(geometry:pipe)
+                node.position = SCNVector3(p.x,3.03,p.z+offset)
+                node.eulerAngles.z = .pi/2
+                world.rootNode.addChildNode(node)
+                for x in [Float(-1.34),-0.21,1.16] {
+                    box(SCNVector3(0.075,0.23,0.18),SCNVector3(p.x+x,3.11,p.z+offset),.darkGray)
+                }
+            }
+        }
+    }
+
+    private func updatePipes() {
+        guard elapsed >= nextPipe else { return }
+        nextPipe = elapsed + Float.random(in:5...15)
+        guard soundEnabled, let source = pipeSources.randomElement() else { return }
+        let candidates = pipeCells.filter { (2.5...13).contains(distance(point($0),camera.position)) }
+        guard let pipe = candidates.randomElement() else { return }
+        playRoomSound(source,at:point(pipe,y:2.95))
+    }
+
+    private func playRoomSound(_ source:SCNAudioSource,at position:SCNVector3) {
+        let node = SCNNode()
+        node.name = "roomEffect"
+        node.position = position
+        world.rootNode.addChildNode(node)
+        node.addAudioPlayer(SCNAudioPlayer(source:source))
+        node.runAction(.sequence([.wait(duration:3),.removeFromParentNode()]))
+    }
+
+    private func tripFloorboard() -> Bool {
+        let p = camera.position
+        let current = House.cell(p.x,p.z)
+        let trap = traps.contains(current) && distance(p,point(current)) < 0.84 ? current : nil
+        defer { lastTrap = trap }
+        guard let trap, trap != lastTrap, !hidden, elapsed >= nextTrap else { return false }
+        nextTrap = elapsed+3.5
+        if soundEnabled, let knock = pipeSources.first { playRoomSound(knock,at:point(trap,y:0.12)) }
+        UIImpactFeedbackGenerator(style:.light).impactOccurred()
+        return distance(p,enemy.position) < 27
     }
 
     private func makeFace() -> (head: SCNNode, eyes: [SCNNode], jaw: SCNNode) {
         let head = SCNNode()
         let skin = UIColor(red:0.42,green:0.38,blue:0.30,alpha:1)
+        let hood = sphere(0.35,SCNVector3(0,0.085,0.105),UIColor(white:0.074,alpha:1),head)
+        hood.scale = SCNVector3(1.0,1.11,0.83)
         let skull = sphere(0.31,SCNVector3(0,0.045,0),skin,head)
         skull.scale = SCNVector3(0.88,1.16,0.81)
+        let nose = sphere(0.065,SCNVector3(0,-0.001,-0.24),skin,head)
+        nose.scale = SCNVector3(0.67,1.19,1.26)
+        for x in [Float(-0.18),0.18] {
+            let cheek = sphere(0.093,SCNVector3(x,-0.055,-0.18),UIColor(red:0.34,green:0.27,blue:0.23,alpha:1),head)
+            cheek.scale = SCNVector3(0.86,0.66,0.73)
+        }
         var eyes = [SCNNode]()
         for x in [Float(-0.112), 0.112] {
             let socket = sphere(0.071,SCNVector3(x,0.075,-0.23),.black,head)
@@ -389,20 +634,21 @@ final class GameController: UIViewController {
         chin.scale = SCNVector3(1.06,0.52,0.85)
         for i in 0..<7 {
             let x = Float(i-3)*0.039
+            let drop = Float(i % 3)*0.006
             let tooth = UIColor(red:0.68,green:0.64,blue:0.47,alpha:1)
-            box(SCNVector3(0.030,0.048,0.025),SCNVector3(x,-0.105,-0.268),tooth,parent:head)
+            box(SCNVector3(0.030,0.048,0.025),SCNVector3(x,-0.105-drop,-0.268),tooth,parent:head)
             box(SCNVector3(0.030,0.040,0.025),SCNVector3(x,0.036,-0.184),tooth,parent:jaw)
         }
         return (head,eyes,jaw)
     }
 
     @objc private func showHelp() {
-        let panel = UIAlertController(title:"HOW TO SURVIVE",message:"Left thumb: move. RUN toggles sprint. Drag the right side to look.\n\nFind three cyan fuses. USE the red fuse box, then the green exit.\n\nCALL WALEED rings his phone in another room. HANG UP before he traces you. SILENCE incoming calls and break line of sight before hiding.\n\nThe flashlight recharges when off. Listen for Waleed’s burps.\n\nContains sudden sounds and jumpscares.",preferredStyle:.alert)
+        let panel = UIAlertController(title:"HOW TO SURVIVE",message:"Left thumb: move. RUN toggles sprint. Drag the right side to look.\n\nFind three cyan fuses. USE the red fuse box, then the green exit.\n\nCALL WALEED rings his phone in another room. HANG UP before he traces you. SILENCE incoming calls and break line of sight before hiding.\n\nUse the steel shelter in the guest room when you can reach it safely. Some boards will give you away. Read notes for clues.\n\nContains sudden sounds and jumpscares.",preferredStyle:.alert)
         panel.addAction(UIAlertAction(title:"GOT IT",style:.default))
         present(panel,animated:true)
     }
     private func stopSceneAudio() {
-        world.rootNode.childNodes.filter { $0.name == "ambientBurp" }.forEach {
+        world.rootNode.childNodes.filter { $0.name == "roomEffect" }.forEach {
             $0.removeAllAudioPlayers()
             $0.removeFromParentNode()
         }
@@ -418,18 +664,15 @@ final class GameController: UIViewController {
 
     private func ambientBurp() {
         guard soundEnabled, let source = burpSources.randomElement() else { return }
-        let node = SCNNode()
-        node.name = "ambientBurp"
+        let position: SCNVector3
         if enemyAwake, Bool.random() {
-            node.position = SCNVector3(enemy.position.x,1.4,enemy.position.z)
+            position = SCNVector3(enemy.position.x,1.4,enemy.position.z)
         } else if let room = rooms.filter({ distance(point($0.phone),camera.position) > 4 }).randomElement() {
-            node.position = point(room.phone,y:1.2)
+            position = point(room.phone,y:1.2)
         } else {
             return
         }
-        world.rootNode.addChildNode(node)
-        node.addAudioPlayer(SCNAudioPlayer(source:source))
-        node.runAction(.sequence([.wait(duration:3),.removeFromParentNode()]))
+        playRoomSound(source,at:position)
     }
 
     private func loopingSource(_ filename: String, volume: Float) -> SCNAudioSource? {
@@ -450,11 +693,20 @@ final class GameController: UIViewController {
                 source.load(); burpSources.append(source)
             }
         }
+        for name in ["pipe-knock","pipe-hiss"] {
+            if let clip = SCNAudioSource(fileNamed:name+".wav") {
+                clip.isPositional = true
+                clip.volume = 1
+                clip.load()
+                pipeSources.append(clip)
+            }
+        }
         ringtone = loopingSource("ring.wav",volume:0.95)
         fridgeHum = loopingSource("fridge.wav",volume:0.6)
-        for name in ["drone","ring","step","sting","pickup","heartbeat","blackout"] {
+        for name in ["drone","ring","step","sting","pickup","heartbeat","blackout","scare-burp"] {
             if let url = Bundle.main.url(forResource:name,withExtension:"wav"),let p = try? AVAudioPlayer(contentsOf:url) { p.prepareToPlay(); players[name] = p }
         }
+        players["sting"]?.volume = 0.55
         for name in ["drone","ring","heartbeat"] { players[name]?.numberOfLoops = -1; players[name]?.volume = 0.35 }
     }
     private func play(_ name:String) { guard soundEnabled else { return }; players[name]?.currentTime = 0; players[name]?.play() }
@@ -496,11 +748,13 @@ final class GameController: UIViewController {
         lastTime = 0
         enemy.isHidden = true
         torch.light?.intensity = 0
-        houseAmbient?.intensity = 920
-        lamps.forEach { $0.light?.intensity = 620 }
+        houseAmbient?.intensity = 700
+        setRoomPower(940)
         shade.isHidden = true
         introOverlay.isHidden = false
-        introPhone.isHidden = false
+        introPhone.isHidden = true
+        introPhone.alpha = 0
+        introPhone.transform = CGAffineTransform(translationX:14,y:145)
         sceneView.isPlaying = true
         UIApplication.shared.isIdleTimerDisabled = true
         play("drone")
@@ -509,13 +763,18 @@ final class GameController: UIViewController {
 
     private func updateIntro(dt: Float) {
         introElapsed += dt
-        camera.eulerAngles = SCNVector3(-0.045,0.12+min(introElapsed,4)*0.095,0)
+        let glance = min(introElapsed/2.4,1)
+        camera.eulerAngles = SCNVector3(-0.015,-0.82+glance*0.91,0)
         let cue: Int
         switch introElapsed {
-        case ..<1.4: cue = 0
-        case ..<3.5: cue = 1
-        case ..<4.55: cue = 2
-        case ..<6.9: cue = 3
+        case ..<2.35: cue = 0
+        case ..<4.1: cue = 1
+        case ..<5.3: cue = 2
+        case ..<6.6: cue = 3
+        case ..<7.7: cue = 4
+        case ..<10.0: cue = 5
+        case ..<12.4: cue = 6
+        case ..<14.8: cue = 7
         default:
             skipIntro()
             return
@@ -524,25 +783,42 @@ final class GameController: UIViewController {
         introBeat = cue
         switch cue {
         case 0:
-            introPhone.text = "3:00 AM\n\nYAMEN’S PHONE"
-            introCaption.text = "Yamen opens Waleed’s contact."
+            introCaption.text = "Yamen: “He told me to wait until morning.”"
         case 1:
-            introPhone.text = "3:00 AM\n\nCALLING WALEED…"
-            introCaption.text = "Yamen: “Pick up, Waleed.”"
-            play("ring")
+            introPhone.screen = .lock
+            introPhone.isHidden = false
+            UIView.animate(withDuration:0.48) {
+                self.introPhone.alpha = 1
+                self.introPhone.transform = .identity
+            }
+            introCaption.text = "Yamen: “One call. That’s all.”"
         case 2:
+            introPhone.screen = .home
+            introCaption.text = nil
+            play("pickup")
+        case 3:
+            introPhone.screen = .recents
+        case 4:
+            introPhone.screen = .contact
+        case 5:
+            introPhone.screen = .dialing
+            play("ring")
+        case 6:
             players["ring"]?.stop()
-            introPhone.text = "3:00 AM\n\nWALEED · CONNECTED"
-            introCaption.text = "Yamen: “Hello?”"
+            introPhone.screen = .connected
+            introCaption.text = "Waleed: “Yamen? Listen. Whatever you hear in the pipes, stay away from the back wing.”"
         default:
             players["drone"]?.stop()
             houseAmbient?.intensity = 0
-            lamps.forEach { $0.light?.intensity = 0 }
-            introOverlay.backgroundColor = .black
-            introPhone.isHidden = true
-            introCaption.text = "The whole house goes dark."
+            setRoomPower(0)
+            introPhone.screen = .lost
             play("blackout")
             UIImpactFeedbackGenerator(style:.medium).impactOccurred()
+            UIView.animate(withDuration:0.55) {
+                self.introPhone.alpha = 0
+                self.introPhone.transform = CGAffineTransform(translationX:12,y:125)
+            }
+            introCaption.text = "Yamen: “Waleed? … Are you still there?”"
         }
     }
 
@@ -554,12 +830,15 @@ final class GameController: UIViewController {
         enemy.isHidden = false
         camera.eulerAngles = SCNVector3Zero
         houseAmbient?.intensity = 240
-        lamps.forEach { $0.light?.intensity = 0 }
+        setRoomPower(0)
         beginPlaying()
         tell("Restore the power. Find three cyan fuses.",duration:7)
     }
 
     private func resetGame() {
+        house = House()
+        nextPipe = 7; nextTrap = 0; lastTrap = nil; readNotes = []
+        movement = .zero; stepPhase = 0; lookRoll = 0
         elapsed = 0; nextBurp = 9; yaw = 0; pitch = 0; hidden = false; flashlight = true
         battery = 100; stamina = 100; collected = []; power = false; nextCall = 24
         phoneState = .idle; nextOutgoing = 0; lure = nil; remoteRing = nil
@@ -567,7 +846,7 @@ final class GameController: UIViewController {
         enemyTarget = House.enemy; routedTarget = nil; enemyAwake = false
         lastKnownPlayer = nil; searchRoute = []
         buildWorld()
-        lamps.forEach { $0.light?.intensity = 0 }
+        setRoomPower(0)
         setRunning(false)
         updatePhoneButton()
         danger.alpha = 0
@@ -677,14 +956,35 @@ final class GameController: UIViewController {
         yaw -= Float(d.x)*0.005; pitch = min(0.9,max(-0.9,pitch-Float(d.y)*0.004))
     }
     private func distance(_ a:SCNVector3,_ b:SCNVector3) -> Float { hypot(a.x-b.x,a.z-b.z) }
-    private func near(_ c:Cell,range:Float = 2.6) -> Bool { let p = point(c); return distance(camera.position,p) < range && House.visible(camera.position.x,camera.position.z,p.x,p.z) }
+    private func near(_ c:Cell,range:Float = 2.6) -> Bool { let p = point(c); return distance(camera.position,p) < range && house.visible(camera.position.x,camera.position.z,p.x,p.z) }
     private func tell(_ text:String,duration:Float = 4) { message.text = text; messageUntil = elapsed+duration }
     @objc private func interact() {
         guard phase == .playing else { return }
         if hidden { hidden = false; tell("You step out. Listen before moving."); return }
-        for i in House.fuses.indices where !collected.contains(i) && near(House.fuses[i]) { collected.insert(i); fuseNodes[i].isHidden = true; play("pickup"); tell("Fuse \(collected.count) / 3 collected."); return }
+        for (index,note) in notes.enumerated() where !readNotes.contains(note.cell) && near(note.cell,range:1.8) {
+            readNotes.insert(note.cell)
+            noteNodes[index].isHidden = true
+            play("pickup")
+            tell(note.text,duration:8)
+            return
+        }
+        if near(shelter,range:2) {
+            if distance(camera.position,enemy.position) < 2 {
+                tell("He’s too close to get the door shut.")
+            } else {
+                hidden = true
+                setRunning(false)
+                flashlight = false
+                lightButton.setTitle("LIGHT OFF",for:.normal)
+                movement = .zero
+                stick.reset()
+                tell("Steel door latched. USE to step out.",duration:8)
+            }
+            return
+        }
+        for i in house.fuses.indices where !collected.contains(i) && near(house.fuses[i]) { collected.insert(i); fuseNodes[i].isHidden = true; play("pickup"); tell("Fuse \(collected.count) / 3 collected."); return }
         if near(House.panel) {
-            if collected.count == 3 && !power { power = true; lamps.forEach { $0.light?.intensity = 380 }; play("pickup"); tell("Power restored. Get to the green exit door!",duration:6) }
+            if collected.count == 3 && !power { power = true; setRoomPower(560); play("pickup"); tell("Power restored. Get to the green exit door!",duration:6) }
             else { tell(power ? "The power is already on." : "Fuse box: \(3-collected.count) more fuses needed.") }; return
         }
         if near(House.exit) { if power { finish(escaped:true) } else { tell("The electric lock has no power.") }; return }
@@ -697,7 +997,10 @@ final class GameController: UIViewController {
     private func finish(escaped: Bool) {
         phase = escaped ? .escaped : .caught
         if escaped {
-            showMenu("YOU GOT OUT.","The line is dead.\nThis time, leave it that way.\n\nFirst night complete.","PLAY AGAIN")
+            let ending = readNotes.count == notes.count ?
+                "Outside, Yamen’s phone lights up. The service log was right: the house was using Waleed’s number. He leaves the phone on the doorstep." :
+                "Yamen throws the breaker and gets out. From the other side of the locked door, the pipes knock three times."
+            showMenu("YOU GOT OUT.",ending,"PLAY AGAIN")
             return
         }
 
@@ -725,20 +1028,21 @@ final class GameController: UIViewController {
         upLight.light = SCNLight()
         upLight.light?.type = .omni
         upLight.light?.color = UIColor(red:1,green:0.28,blue:0.19,alpha:1)
-        upLight.light?.intensity = 120
+        upLight.light?.intensity = 265
         scareScene.rootNode.addChildNode(upLight)
 
         sceneView.scene = scareScene
         sceneView.pointOfView = scareCamera
         sceneView.audioListener = scareCamera
-        let lunge = SCNAction.move(to:SCNVector3(0,-0.065,-0.78),duration:0.16)
+        let lunge = SCNAction.move(to:SCNVector3(0,-0.055,-0.69),duration:0.16)
         lunge.timingMode = .easeIn
         let twist = SCNAction.rotateTo(x:0.11,y:.pi,z:0.16,duration:0.16,usesShortestUnitArc:true)
         head.runAction(.sequence([
             .wait(duration:0.08),
             .group([lunge,twist]),
             .moveBy(x:-0.037,y:0.025,z:0.028,duration:0.055),
-            .moveBy(x:0.060,y:-0.035,z:-0.03,duration:0.085)
+            .moveBy(x:0.060,y:-0.035,z:-0.03,duration:0.085),
+            .rotateBy(x:-0.16,y:-0.04,z:-0.09,duration:0.20)
         ]))
         if !UIAccessibility.isReduceMotionEnabled {
             scareCamera.runAction(.sequence([
@@ -750,12 +1054,17 @@ final class GameController: UIViewController {
         }
         jaw.runAction(.sequence([
             .wait(duration:0.08),
-            .group([.rotateBy(x:-0.88,y:0,z:0,duration:0.15),.moveBy(x:0,y:-0.17,z:0,duration:0.15)])
+            .group([.rotateBy(x:-1.02,y:0,z:0,duration:0.15),.moveBy(x:0,y:-0.14,z:0,duration:0.15)]),
+            .wait(duration:0.25), .rotateBy(x:0.19,y:0,z:0,duration:0.21)
         ]))
         play("sting")
-        UIImpactFeedbackGenerator(style:.heavy).impactOccurred(intensity:1)
+        DispatchQueue.main.asyncAfter(deadline:.now()+0.24) { [weak self] in
+            guard let self, self.phase == .caught else { return }
+            self.play("scare-burp")
+            UIImpactFeedbackGenerator(style:.heavy).impactOccurred(intensity:1)
+        }
 
-        DispatchQueue.main.asyncAfter(deadline:.now()+1.04) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline:.now()+1.55) { [weak self] in
             guard let self, self.phase == .caught else { return }
             self.showMenu("HE FOUND YOU.","Don’t call Waleed at 3 AM.\n\nWalk to stay quiet. Silence incoming calls.\nHide by a gold handle.\nBreak his line of sight before hiding.","TRY AGAIN")
         }
@@ -764,7 +1073,7 @@ final class GameController: UIViewController {
     private func seesPlayer(_ distance: Float) -> Bool {
         guard !hidden, distance < (flashlight ? 18 : 11) else { return false }
         let p = camera.position, e = enemy.position
-        return House.visible(e.x,e.z,p.x,p.z)
+        return house.visible(e.x,e.z,p.x,p.z)
     }
 
     private func moveEnemy(toward destination: SCNVector3, speed: Float, dt: Float) -> Float {
@@ -776,9 +1085,11 @@ final class GameController: UIViewController {
         let vz = (destination.z-position.z)/remaining
         let nx = position.x+vx*step
         let nz = position.z+vz*step
-        guard House.walkable(nx,nz,radius:0.18) else { return 0 }
+        guard house.walkable(nx,nz,radius:0.18) else { return 0 }
         enemy.position = SCNVector3(nx,position.y,nz)
-        enemy.eulerAngles.y = atan2(-vx,-vz)
+        let bearing = atan2(-vx,-vz)
+        let angleDelta = bearing-enemy.eulerAngles.y
+        enemy.eulerAngles.y += atan2(sin(angleDelta),cos(angleDelta))*min(1,dt*13)
         return step
     }
 
@@ -811,27 +1122,32 @@ final class GameController: UIViewController {
                     enemyTarget = lure.target
                 } else {
                     lure = nil
-                    if reached(enemyTarget), enemyTarget == House.patrol[patrolIndex] {
-                        patrolIndex = (patrolIndex+1)%House.patrol.count
+                    if reached(enemyTarget), enemyTarget == house.patrol[patrolIndex] {
+                        patrolIndex = (patrolIndex+1)%house.patrol.count
                     }
-                    enemyTarget = House.patrol[patrolIndex]
+                    enemyTarget = house.patrol[patrolIndex]
                 }
             }
 
             let speed: Float = hunting ? (power ? 4.65 : 4.35) : 2.35
             let moved = advanceEnemy(visiblePlayer:sight ? p : nil,speed:speed,dt:dt)
-            gait += moved*7
-            let stride = moved > 0.001 ? sin(gait)*(hunting ? 0.62 : 0.40) : 0
-            enemyLimbs[0].eulerAngles.x = stride
-            enemyLimbs[1].eulerAngles.x = -stride
-            enemyLimbs[2].eulerAngles.x = -stride
-            enemyLimbs[3].eulerAngles.x = stride
-            enemy.position.y = moved > 0.001 ? abs(sin(gait))*0.044 : 0
+            gait += moved*4.9
+            let amount: Float = hunting ? 0.74 : 0.45
+            let stride = moved > 0.001 ? sin(gait)*amount : 0
+            let target: [Float] = [-stride,stride,stride,-stride]
+            let bend: [Float] = [0.38+max(0,stride)*0.42,0.38+max(0,-stride)*0.42,
+                                 -max(0,-stride)*0.88,-max(0,stride)*0.88]
+            for index in enemyLimbs.indices {
+                enemyLimbs[index].eulerAngles.x += (target[index]-enemyLimbs[index].eulerAngles.x)*min(1,dt*17)
+                enemyBend[index].eulerAngles.x += (bend[index]-enemyBend[index].eulerAngles.x)*min(1,dt*17)
+            }
+            enemy.eulerAngles.x = hunting && moved > 0.001 ? 0.12 : 0
+            enemy.position.y = moved > 0.001 ? abs(sin(gait))*0.05 : 0
         }
 
         let e = enemy.position
         let dist = distance(e,p)
-        let close = !hidden && dist < 5.8 && House.visible(e.x,e.z,p.x,p.z)
+        let close = !hidden && dist < 5.8 && house.visible(e.x,e.z,p.x,p.z)
         enemyEyes.forEach { $0.isHidden = !close }
         if close {
             let facing = atan2(e.x-p.x,e.z-p.z)-enemy.eulerAngles.y
@@ -839,7 +1155,7 @@ final class GameController: UIViewController {
         } else {
             enemyHead.eulerAngles.y = 0
         }
-        if enemyAwake && !hidden && House.canCatch(enemyX:e.x,enemyZ:e.z,playerX:p.x,playerZ:p.z) {
+        if enemyAwake && !hidden && house.canCatch(enemyX:e.x,enemyZ:e.z,playerX:p.x,playerZ:p.z) {
             finish(escaped:false)
             return false
         }
@@ -860,7 +1176,7 @@ final class GameController: UIViewController {
     private func updateSearch(detected: Bool) {
         guard !detected, reached(enemyTarget) else { return }
         if let lastKnownPlayer {
-            searchRoute = House.searchCells(near:lastKnownPlayer)
+            searchRoute = house.searchCells(near:lastKnownPlayer)
             self.lastKnownPlayer = nil
         }
         if !searchRoute.isEmpty {
@@ -872,7 +1188,7 @@ final class GameController: UIViewController {
 
     private func advanceEnemy(visiblePlayer: SCNVector3?, speed: Float, dt: Float) -> Float {
         let e = enemy.position
-        if let player = visiblePlayer, House.walkableBetween(e.x,e.z,player.x,player.z,radius:0.18) {
+        if let player = visiblePlayer, house.walkableBetween(e.x,e.z,player.x,player.z,radius:0.18) {
             route.removeAll()
             routedTarget = nil
             routeTime = elapsed
@@ -882,7 +1198,7 @@ final class GameController: UIViewController {
             // Finish the committed segment before turning, so corners stay clear.
             let origin = route.first ?? House.cell(e.x,e.z)
             let anchor = route.first != nil || !reached(origin) ? [origin] : []
-            route = anchor + House.path(from:origin,to:enemyTarget)
+            route = anchor + house.path(from:origin,to:enemyTarget)
             routedTarget = enemyTarget
             routeTime = elapsed+0.21
         }
@@ -908,24 +1224,43 @@ final class GameController: UIViewController {
         let sprint = running && moving && stamina > 2
         stamina = min(100,max(0,stamina+(sprint ? -22 : 12)*dt))
         if running && stamina <= 2 { setRunning(false) }
+        var stepped = false
         if !hidden {
-            let speed:Float = sprint ? 4 : 2.2, forward = -Float(stick.vector.y), strafe = Float(stick.vector.x)
-            let dx = (-sin(yaw)*forward+cos(yaw)*strafe)*speed*dt, dz = (-cos(yaw)*forward-sin(yaw)*strafe)*speed*dt
-            var p = camera.position
-            if House.walkable(p.x+dx,p.z) { p.x += dx }; if House.walkable(p.x,p.z+dz) { p.z += dz }
-            p.y = 1.6+(moving ? sin(elapsed*(sprint ? 14 : 9))*0.035 : 0); camera.position = p; camera.eulerAngles = SCNVector3(pitch,yaw,0)
-            if moving && elapsed > footTime { play("step"); footTime = elapsed+(sprint ? 0.3 : 0.55) }
+            let speed: Float = sprint ? 4 : 2.2
+            let requested = moving ? SIMD2<Float>(Float(stick.vector.x),-Float(stick.vector.y))*speed : .zero
+            movement += (requested-movement)*min(1,dt*(moving ? 12 : 19))
+            let dx = (-sin(yaw)*movement.y+cos(yaw)*movement.x)*dt
+            let dz = (-cos(yaw)*movement.y-sin(yaw)*movement.x)*dt
+            let previous = camera.position
+            var p = previous
+            if house.walkable(p.x+dx,p.z) { p.x += dx }
+            if house.walkable(p.x,p.z+dz) { p.z += dz }
+            let traveled = distance(previous,p)
+            stepped = traveled > 0.002
+            stepPhase += traveled*(sprint ? 4.5 : 5.1)
+            let reduceMotion = UIAccessibility.isReduceMotionEnabled
+            let targetHeight: Float = 1.60 + (stepped && !reduceMotion ? sin(stepPhase)*(sprint ? 0.046 : 0.028) : 0)
+            p.y += (targetHeight-p.y)*min(1,dt*18)
+            let tilt = reduceMotion ? 0 : -movement.x*0.010
+            lookRoll += (tilt-lookRoll)*min(1,dt*9)
+            camera.position = p
+            camera.eulerAngles = SCNVector3(pitch,yaw,lookRoll)
+            if stepped && elapsed > footTime { play("step"); footTime = elapsed+(sprint ? 0.3 : 0.55) }
         }
         battery = min(100,max(0,battery+(flashlight && !hidden ? -0.65 : 1.25)*dt))
         if battery <= 0 { flashlight = false; lightButton.setTitle("LIGHT OFF",for:.normal) }
         torch.light?.intensity = flashlight && !hidden ? flashlightIntensity : 0
         camera.camera?.exposureOffset = hidden ? -2 : 0
+        updatePipes()
         let traced = updatePhone()
-        guard updateEnemy(dt:dt,sprint:sprint,moving:moving,traced:traced) else { return }
+        let trap = tripFloorboard()
+        guard updateEnemy(dt:dt,sprint:sprint,moving:stepped,traced:traced || trap) else { return }
         status.text = "3:\(String(format:"%02d",min(59,Int(elapsed/12)))) AM   LIGHT \(Int(battery))%   BREATH \(Int(stamina))%"
         objective.text = power ? "POWER ON · REACH THE GREEN EXIT" : "FUSES \(collected.count)/3 · \(collected.count == 3 ? "FIND THE RED FUSE BOX" : "SEARCH THE HOUSE")"
         if hidden { hint.text = "HIDDEN · USE TO LEAVE" }
-        else if House.fuses.indices.contains(where:{ !collected.contains($0) && near(House.fuses[$0]) }) { hint.text = "USE · TAKE FUSE" }
+        else if near(shelter,range:2) { hint.text = "USE · STEEL SHELTER" }
+        else if notes.contains(where:{ !readNotes.contains($0.cell) && near($0.cell,range:1.8) }) { hint.text = "USE · READ NOTE" }
+        else if house.fuses.indices.contains(where:{ !collected.contains($0) && near(house.fuses[$0]) }) { hint.text = "USE · TAKE FUSE" }
         else if near(House.panel) { hint.text = "USE · FUSE BOX" } else if near(House.exit) { hint.text = "USE · EXIT" }
         else if House.closets.contains(where:{ near($0,range:2) }) { hint.text = "USE · HIDE" } else { hint.text = elapsed < huntUntil ? "HE’S LOOKING FOR YOU" : "DRAG RIGHT SIDE TO LOOK" }
     }
