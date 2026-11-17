@@ -47,6 +47,11 @@ for seed in 0..<32 {
     maps.insert(layout.rows.map { String($0) }.joined())
     fuseSets.insert(layout.fuses)
     check(layout.rows.allSatisfy { $0.count == 27 }, "New wing has malformed rows")
+    check(layout.doorways.count == 12, "The intended twelve doorways must have doors")
+    for doorway in layout.doorways {
+        let p = doorway.cell
+        check(layout.path(from:House.spawn,to:p).last == p, "A door is outside the reachable floor")
+    }
     for cell in layout.fuses + layout.patrol + House.closets + [House.exit,House.panel] {
         check(layout.path(from:House.spawn,to:cell).last == cell, "Seed \(seed) has an unreachable objective or patrol point")
     }

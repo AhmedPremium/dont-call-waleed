@@ -110,6 +110,8 @@ final class GameController: UIViewController {
     private var remoteRing: SCNNode?
     private var fridge: SCNNode?
     private var fridgeHum: SCNAudioSource?
+    private let phoneVoice = AVSpeechSynthesizer()
+    private var innerDoors = [(pivot: SCNNode, center: SCNVector3)]()
     private var fuseNodes = [SCNNode](), lamps = [SCNNode]()
     private let stick = Stick(frame:.zero), lookSurface = UIView(), controls = UIView(), shade = UIView(), danger = UIView()
     private let status = UILabel(), objective = UILabel(), message = UILabel(), hint = UILabel(), titleLabel = UILabel(), detailLabel = UILabel()
@@ -269,6 +271,7 @@ final class GameController: UIViewController {
         let ambient = SCNNode(); ambient.light = SCNLight(); ambient.light?.type = .ambient; ambient.light?.color = UIColor(red:0.22,green:0.27,blue:0.36,alpha:1); ambient.light?.intensity = 240; world.rootNode.addChildNode(ambient)
         houseAmbient = ambient.light
         buildSurfaces()
+        buildDoors()
         addRoomLamp(at:point(Cell(x:3,z:13)))
         box(SCNVector3(1.68,0.45,0.73),point(Cell(x:4,z:13),y:0.30),UIColor(red:0.30,green:0.22,blue:0.16,alpha:1))
         box(SCNVector3(1.62,0.13,0.69),point(Cell(x:4,z:13),y:0.58),UIColor(red:0.37,green:0.45,blue:0.39,alpha:1))
@@ -284,14 +287,21 @@ final class GameController: UIViewController {
             box(SCNVector3(0.85,2.6,1.7),SCNVector3(p.x-0.65,1.3,p.z),UIColor(red:0.13,green:0.08,blue:0.045,alpha:1))
             box(SCNVector3(0.04,0.1,0.18),SCNVector3(p.x-0.19,1.2,p.z),.systemYellow,glow:true)
         }
-        for c in house.fuses { let p = point(c)
-            box(SCNVector3(1.2,0.8,0.7),SCNVector3(p.x,0.4,p.z-0.75),UIColor(white:0.15,alpha:1))
-            let n = box(SCNVector3(0.18,0.32,0.18),SCNVector3(p.x,1,p.z-0.75),.systemCyan,glow:true)
-            n.runAction(.repeatForever(.sequence([.moveBy(x:0,y:0.12,z:0,duration:0.8),.moveBy(x:0,y:-0.12,z:0,duration:0.8)]))); fuseNodes.append(n)
+        for cell in house.fuses {
+            let p = point(cell)
+            sideTable(at:p)
+            fuseNodes.append(makeFuse(at:SCNVector3(p.x,0.806,p.z-0.18)))
         }
         let panel = point(House.panel)
-        box(SCNVector3(0.8,1.3,0.25),SCNVector3(panel.x,1.45,panel.z+0.6),UIColor(white:0.22,alpha:1))
-        box(SCNVector3(0.12,0.12,0.06),SCNVector3(panel.x,1.65,panel.z+0.44),.systemRed,glow:true)
+        box(SCNVector3(0.89,1.24,0.28),SCNVector3(panel.x,1.45,panel.z+0.6),UIColor(white:0.21,alpha:1))
+        box(SCNVector3(0.78,0.95,0.05),SCNVector3(panel.x,1.40,panel.z+0.445),.darkGray)
+        for x in [Float(-0.24),0,0.24] {
+            box(SCNVector3(0.16,0.38,0.035),SCNVector3(panel.x+x,1.36,panel.z+0.408),.black)
+            for y in [Float(1.22),1.50] {
+                box(SCNVector3(0.095,0.047,0.041),SCNVector3(panel.x+x,y,panel.z+0.388),UIColor(red:0.73,green:0.51,blue:0.23,alpha:1))
+            }
+        }
+        box(SCNVector3(0.12,0.12,0.06),SCNVector3(panel.x,1.83,panel.z+0.44),.systemRed,glow:true)
         let door = point(House.exit)
         box(SCNVector3(1.65,2.85,0.15),SCNVector3(door.x,1.43,door.z+1.08),UIColor(red:0.11,green:0.18,blue:0.17,alpha:1))
         box(SCNVector3(0.8,0.2,0.04),SCNVector3(door.x,2.7,door.z+0.97),.systemGreen,glow:true)
@@ -449,15 +459,127 @@ final class GameController: UIViewController {
         }
     }
 
+    private func buildDoors() {
+        innerDoors.removeAll()
+        let painted = UIColor(red:0.61,green:0.54,blue:0.43,alpha:1)
+        let wood = UIColor(red:0.34,green:0.19,blue:0.11,alpha:1)
+        let raised = UIColor(red:0.42,green:0.25,blue:0.15,alpha:1)
+        let brass = UIColor(red:0.71,green:0.53,blue:0.26,alpha:1)
+        for doorway in house.doorways {
+            let frame = SCNNode()
+            frame.position = point(doorway.cell)
+            frame.eulerAngles.y = doorway.rotated ? .pi/2 : 0
+            world.rootNode.addChildNode(frame)
+            for x in [Float(-0.89),0.89] {
+                box(SCNVector3(0.26,2.60,0.32),SCNVector3(x,1.30,0),painted,parent:frame)
+            }
+            box(SCNVector3(2.04,0.21,0.32),SCNVector3(0,2.52,0),painted,parent:frame)
+            box(SCNVector3(2.04,0.72,0.25),SCNVector3(0,2.97,0),painted,parent:frame)
+            box(SCNVector3(1.58,0.024,0.32),SCNVector3(0,0.012,0),wood,parent:frame)
+            let hinge = SCNNode()
+            hinge.position = SCNVector3(-0.77,0,0)
+            frame.addChildNode(hinge)
+            box(SCNVector3(1.50,2.37,0.09),SCNVector3(0.75,1.20,0),wood,parent:hinge)
+            for side in [Float(-1),1] {
+                for y in [Float(0.56),1.73] {
+                    box(SCNVector3(1.14,0.87,0.031),SCNVector3(0.75,y,0.057*side),raised,parent:hinge)
+                    box(SCNVector3(0.98,0.73,0.017),SCNVector3(0.75,y,0.078*side),wood,parent:hinge)
+                }
+                box(SCNVector3(0.068,0.18,0.016),SCNVector3(1.34,1.05,0.058*side),brass,parent:hinge)
+                let knob = sphere(0.045,SCNVector3(1.34,1.07,0.097*side),brass,hinge)
+                knob.scale.z = 0.72
+            }
+            innerDoors.append((hinge,frame.position))
+        }
+    }
+
+    private func moveDoors(dt:Float) {
+        for door in innerDoors {
+            let approaching = distance(camera.position,door.center) < 3.8 || distance(enemy.position,door.center) < 3.8
+            let angle: Float = approaching ? -1.61 : 0
+            door.pivot.eulerAngles.y += (angle-door.pivot.eulerAngles.y)*min(1,dt*9)
+        }
+    }
+
+    private func sideTable(at p:SCNVector3) {
+        let wood = UIColor(red:0.33,green:0.20,blue:0.13,alpha:1)
+        box(SCNVector3(0.92,0.074,0.64),SCNVector3(p.x,0.708,p.z-0.18),wood)
+        box(SCNVector3(0.81,0.165,0.53),SCNVector3(p.x,0.60,p.z-0.18),wood)
+        box(SCNVector3(0.17,0.037,0.065),SCNVector3(p.x,0.60,p.z+0.105),.lightGray)
+        for x in [Float(-0.34),0.34] {
+            for z in [Float(-0.40),0.03] {
+                box(SCNVector3(0.067,0.54,0.068),SCNVector3(p.x+x,0.26,p.z+z),wood)
+            }
+        }
+    }
+
+    private func makeFuse(at p:SCNVector3) -> SCNNode {
+        let cartridge = SCNNode()
+        cartridge.position = p
+        world.rootNode.addChildNode(cartridge)
+        let casing = UIColor(red:0.82,green:0.81,blue:0.72,alpha:1)
+        let metal = UIColor(red:0.64,green:0.66,blue:0.64,alpha:1)
+        let shell = UIColor(red:0.10,green:0.30,blue:0.31,alpha:1)
+        box(SCNVector3(0.37,0.097,0.16),SCNVector3Zero,shell,parent:cartridge)
+        let tube = SCNCylinder(radius:0.053,height:0.32)
+        tube.radialSegmentCount = 14
+        tube.materials = [material(casing)]
+        let body = SCNNode(geometry:tube)
+        body.eulerAngles.z = .pi/2
+        cartridge.addChildNode(body)
+        for x in [Float(-0.166),0.166] {
+            let cap = SCNCylinder(radius:0.058,height:0.079)
+            cap.radialSegmentCount = 14
+            let finish = material(metal)
+            finish.roughness.contents = 0.28
+            cap.materials = [finish]
+            let contact = SCNNode(geometry:cap)
+            contact.position.x = x
+            contact.eulerAngles.z = .pi/2
+            cartridge.addChildNode(contact)
+            box(SCNVector3(0.048,0.035,0.069),SCNVector3(x*1.36,0,0),metal,parent:cartridge)
+        }
+        box(SCNVector3(0.107,0.007,0.014),SCNVector3(0,0.059,0.021),.systemCyan,parent:cartridge,glow:true)
+        return cartridge
+    }
+
+    private func bed(at p:SCNVector3,blanket:UIColor) {
+        let wood = UIColor(red:0.31,green:0.20,blue:0.14,alpha:1)
+        let linen = UIColor(red:0.72,green:0.69,blue:0.60,alpha:1)
+        box(SCNVector3(1.70,1.05,0.12),SCNVector3(p.x,0.57,p.z-1.00),wood)
+        box(SCNVector3(1.58,0.27,2.04),SCNVector3(p.x,0.25,p.z+0.04),wood)
+        box(SCNVector3(1.53,0.22,1.98),SCNVector3(p.x,0.47,p.z+0.04),linen)
+        for x in [Float(-0.40),0.40] {
+            let cushion = sphere(0.31,SCNVector3(p.x+x,0.64,p.z-0.61),linen,world.rootNode)
+            cushion.scale = SCNVector3(1.04,0.23,0.70)
+        }
+        box(SCNVector3(1.55,0.075,1.37),SCNVector3(p.x,0.62,p.z+0.35),blanket)
+        box(SCNVector3(0.067,0.22,1.36),SCNVector3(p.x-0.75,0.51,p.z+0.35),blanket)
+        box(SCNVector3(0.067,0.22,1.36),SCNVector3(p.x+0.75,0.51,p.z+0.35),blanket)
+        sideTable(at:SCNVector3(p.x-1.50,0,p.z-0.64))
+    }
+
+    private func sofa(at p:SCNVector3) {
+        let fabric = UIColor(red:0.34,green:0.42,blue:0.36,alpha:1)
+        let cushions = UIColor(red:0.42,green:0.50,blue:0.43,alpha:1)
+        box(SCNVector3(2.58,0.31,0.91),SCNVector3(p.x,0.30,p.z),fabric)
+        box(SCNVector3(2.56,0.66,0.17),SCNVector3(p.x,0.68,p.z-0.38),fabric)
+        for x in [Float(-1.14),1.14] {
+            box(SCNVector3(0.26,0.43,0.91),SCNVector3(p.x+x,0.55,p.z),fabric)
+        }
+        for x in [Float(-0.68),0,0.68] {
+            box(SCNVector3(0.65,0.12,0.63),SCNVector3(p.x+x,0.50,p.z+0.065),cushions)
+            box(SCNVector3(0.65,0.40,0.15),SCNVector3(p.x+x,0.76,p.z-0.235),cushions)
+        }
+    }
+
     private func furnishRoom(_ kind: RoomKind, at p: SCNVector3) {
         let wall = p.z - 1.02
         let darkMetal = UIColor(white:0.15,alpha:1)
         let enamel = UIColor(red:0.64,green:0.69,blue:0.62,alpha:1)
         switch kind {
-        case .bedroom: // Bedroom: crooked headboard, mattress and pillow.
-            box(SCNVector3(1.7,1.12,0.18),SCNVector3(p.x,0.58,wall),UIColor(red:0.27,green:0.12,blue:0.08,alpha:1))
-            box(SCNVector3(1.45,0.28,0.65),SCNVector3(p.x,0.36,wall+0.31),UIColor(red:0.28,green:0.09,blue:0.11,alpha:1))
-            box(SCNVector3(0.58,0.14,0.29),SCNVector3(p.x+0.26,0.57,wall+0.20),UIColor(white:0.60,alpha:1))
+        case .bedroom:
+            bed(at:p,blanket:UIColor(red:0.29,green:0.14,blue:0.19,alpha:1))
         case .kitchen: // Kitchen: two-door fridge with an audible compressor.
             buildKitchen(at:p)
             fridge = box(SCNVector3(1.04,2.26,0.39),SCNVector3(p.x,1.13,wall+0.09),enamel)
@@ -466,7 +588,12 @@ final class GameController: UIViewController {
                 box(SCNVector3(0.07,0.24,0.08),SCNVector3(p.x-0.37,y,wall+0.32),darkMetal)
             }
             box(SCNVector3(0.05,0.04,0.02),SCNVector3(p.x+0.35,0.25,wall+0.3),.systemGreen,glow:true)
-        case .lounge: // Lounge: an old television comes and goes in the dark.
+        case .lounge:
+            box(SCNVector3(2.14,0.63,0.61),SCNVector3(p.x,0.33,wall+0.23),UIColor(red:0.37,green:0.22,blue:0.14,alpha:1))
+            for x in [Float(-0.53),0.53] {
+                box(SCNVector3(0.69,0.43,0.02),SCNVector3(p.x+x,0.37,wall+0.548),.darkGray)
+            }
+            sofa(at:SCNVector3(p.x+2.45,0,wall+0.55))
             box(SCNVector3(1.48,0.94,0.42),SCNVector3(p.x,1.41,wall+0.07),darkMetal)
             let screen = box(SCNVector3(1.18,0.70,0.018),SCNVector3(p.x-0.04,1.43,wall+0.29),UIColor(red:0.14,green:0.43,blue:0.48,alpha:1),glow:true)
             thermalScreens.append(screen)
@@ -502,10 +629,15 @@ final class GameController: UIViewController {
             }
             let plate = sphere(0.24,SCNVector3(p.x+0.51,0.97,wall+0.69),enamel,world.rootNode)
             plate.scale.y = 0.11
+            for x in [Float(-0.73),0.62] {
+                box(SCNVector3(0.40,0.09,0.41),SCNVector3(p.x+x,0.48,wall+1.52),darkMetal)
+                box(SCNVector3(0.40,0.43,0.07),SCNVector3(p.x+x,0.73,wall+1.72),darkMetal)
+                for dx in [Float(-0.15),0.15] {
+                    box(SCNVector3(0.048,0.44,0.36),SCNVector3(p.x+x+dx,0.22,wall+1.52),darkMetal)
+                }
+            }
         case .guest:
-            box(SCNVector3(2.05,0.40,1.44),SCNVector3(p.x,0.30,wall+0.56),darkMetal)
-            box(SCNVector3(2.03,0.14,1.45),SCNVector3(p.x,0.56,wall+0.56),UIColor(red:0.49,green:0.47,blue:0.41,alpha:1))
-            box(SCNVector3(1.58,0.06,1.09),SCNVector3(p.x,0.66,wall+0.72),UIColor(red:0.14,green:0.27,blue:0.25,alpha:1))
+            bed(at:p,blanket:UIColor(red:0.16,green:0.32,blue:0.30,alpha:1))
         case .sunroom:
             box(SCNVector3(3.15,1.38,0.13),SCNVector3(p.x,1.97,wall),darkMetal)
             for x in [Float(-1.04),0,1.04] {
@@ -785,8 +917,8 @@ final class GameController: UIViewController {
         case ..<6.6: cue = 3
         case ..<7.7: cue = 4
         case ..<10.0: cue = 5
-        case ..<12.4: cue = 6
-        case ..<14.8: cue = 7
+        case ..<14.1: cue = 6
+        case ..<16.5: cue = 7
         default:
             skipIntro()
             return
@@ -818,8 +950,16 @@ final class GameController: UIViewController {
         case 6:
             players["ring"]?.stop()
             introPhone.screen = .connected
-            introCaption.text = "Waleed: “Yamen? Listen. Whatever you hear in the pipes, stay away from the back wing.”"
+            introCaption.text = "Waleed: “Why did you call me at 3 AM?”"
+            if soundEnabled {
+                let reply = AVSpeechUtterance(string:"Why did you call me at three A M?")
+                reply.voice = AVSpeechSynthesisVoice(language:"en-GB")
+                reply.rate = 0.45
+                reply.pitchMultiplier = 0.86
+                phoneVoice.speak(reply)
+            }
         default:
+            phoneVoice.stopSpeaking(at:.immediate)
             players["drone"]?.stop()
             houseAmbient?.intensity = 0
             setRoomPower(0)
@@ -838,6 +978,7 @@ final class GameController: UIViewController {
         guard phase == .intro else { return }
         players["ring"]?.stop()
         players["blackout"]?.stop()
+        phoneVoice.stopSpeaking(at:.immediate)
         introOverlay.backgroundColor = .clear
         enemy.isHidden = false
         camera.eulerAngles = SCNVector3Zero
@@ -1141,7 +1282,7 @@ final class GameController: UIViewController {
                 }
             }
 
-            let speed: Float = hunting ? (power ? 4.65 : 4.35) : 2.35
+            let speed: Float = hunting ? (power ? 4.45 : 4.15) : 2.26
             let moved = advanceEnemy(visiblePlayer:sight ? p : nil,speed:speed,dt:dt)
             gait += moved*4.9
             let amount: Float = hunting ? 0.74 : 0.45
@@ -1234,7 +1375,7 @@ final class GameController: UIViewController {
         if elapsed > messageUntil { message.text = "" }
         let moving = !hidden && hypot(stick.vector.x,stick.vector.y) > 0.12
         let sprint = running && moving && stamina > 2
-        stamina = min(100,max(0,stamina+(sprint ? -22 : 12)*dt))
+        stamina = min(100,max(0,stamina+(sprint ? -13 : 13)*dt))
         if running && stamina <= 2 { setRunning(false) }
         var stepped = false
         if !hidden {
@@ -1263,6 +1404,7 @@ final class GameController: UIViewController {
         if battery <= 0 { flashlight = false; lightButton.setTitle("LIGHT OFF",for:.normal) }
         torch.light?.intensity = flashlight && !hidden ? flashlightIntensity : 0
         camera.camera?.exposureOffset = hidden ? -2 : 0
+        moveDoors(dt:dt)
         updatePipes()
         let traced = updatePhone()
         let trap = tripFloorboard()

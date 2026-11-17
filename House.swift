@@ -64,6 +64,22 @@ struct House {
         patrol = [Self.enemy,Cell(x:23,z:3),Cell(x:2,z:2),Cell(x:2,z:8),
                   Cell(x:21,z:8),Cell(x:23,z:13),Cell(x:14,z:14),Cell(x:3,z:13)]
     }
+    var doorways: [(cell: Cell, rotated: Bool)] {
+        var result = [(cell: Cell, rotated: Bool)]()
+        for z in 1..<(rows.count-1) {
+            for x in 1..<(rows[z].count-1) where rows[z][x] == "." {
+                let horizontal = rows[z][x-1] == "." && rows[z][x+1] == "."
+                let vertical = rows[z-1][x] == "." && rows[z+1][x] == "."
+                if horizontal && rows[z-1][x] == "#" && rows[z+1][x] == "#" {
+                    result.append((Cell(x:x,z:z),true))
+                } else if vertical && rows[z][x-1] == "#" && rows[z][x+1] == "#" {
+                    result.append((Cell(x:x,z:z),false))
+                }
+            }
+        }
+        return result
+    }
+
     func open(_ c: Cell) -> Bool {
         c.z >= 0 && c.z < rows.count && c.x >= 0 && c.x < rows[c.z].count && rows[c.z][c.x] != "#"
     }
