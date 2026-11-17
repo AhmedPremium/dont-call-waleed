@@ -118,3 +118,30 @@ print("Validated the prologue route from upstairs bed to downstairs front door."
 check(!House.canNotice(range:1,forward:1,flashlight:true,crouched:true), "Crouching prevents Waleed detecting the player")
 check(!House.canNotice(range:4,forward:-4,flashlight:false,crouched:false), "Patrol vision should not detect players behind Waleed")
 check(House.canNotice(range:4,forward:4,flashlight:false,crouched:false), "Visible standing players should still be detected")
+
+// Check both player choices and a missed call without wall-clock timing.
+var answered = BreakerEncounter()
+answered.start(at:0)
+check(answered.isLit(at:0.10) && !answered.isLit(at:0.29),"The breaker must flicker")
+check(answered.advance(to:1) == nil,"Call must wait for the flicker")
+check(answered.advance(to:2) == .ring && answered.answer(at:3),"Breaker call can be answered")
+check(answered.advance(to:5) == nil && answered.advance(to:6) == .knock,"Knock follows the voice")
+check(answered.advance(to:7) == nil && answered.advance(to:9) == .clue,"Listening earns the exit clue")
+check(answered.advance(to:10) == nil,"The scene must only play once")
+var earlyHangup = BreakerEncounter()
+earlyHangup.start(at:0)
+check(earlyHangup.advance(to:2) == .ring && earlyHangup.answer(at:3) && earlyHangup.hangUp(),"Player can hang up")
+check(earlyHangup.advance(to:10) == nil && !earlyHangup.isActive,"Hanging up suppresses the knocks and clue")
+var missed = BreakerEncounter()
+missed.start(at:0)
+check(missed.advance(to:2) == .ring && missed.advance(to:14) == .missed,"Unanswered calls expire")
+check(!missed.answer(at:15),"An expired call cannot be answered")
+print("Validated all three breaker call outcomes.")
+
+let retryLayout = House(seed:12)
+let freshLayout = retryLayout.reshuffled()
+check(freshLayout.rows != retryLayout.rows || freshLayout.fuses != retryLayout.fuses, "New layout must change the floor plan or fuse placement")
+for stop in [House.fridgeStop,House.listeningStop,House.sofaStop] {
+    check(retryLayout.patrol.contains(stop), "Patrol must visit each activity")
+}
+print("Validated a distinct new layout and all three patrol stops.")

@@ -28,6 +28,9 @@ struct House {
     static let foyerEntrance = Cell(x:0,z:13)
     static let sunroomWindow = Cell(x:14,z:11)
     static let panel = Cell(x: 14, z: 14)
+    static let fridgeStop = Cell(x:12,z:1)
+    static let sofaStop = Cell(x:5,z:6)
+    static let listeningStop = Cell(x:8,z:8)
     static let exit = Cell(x: 7, z: 15)
     static let closets = [Cell(x: 1, z: 14), Cell(x: 1, z: 3), Cell(x: 15, z: 9)]
     let rows: [[Character]]
@@ -86,9 +89,15 @@ struct House {
         }
         let fuseTables = selectedFuses.map { Footprint($0,0,Self.fuseTableShift-0.18,0.46,0.32) }
         furniture = counters + fuseTables + [Footprint(kitchen,0,-0.93,0.52,0.195)]
-        patrol = [Self.enemy,Cell(x:2,z:2),Cell(x:2,z:8),
-                  Cell(x:12,z:8),Cell(x:14,z:14),Cell(x:3,z:13)]
+        patrol = [Self.enemy,Self.fridgeStop,Cell(x:2,z:2),Self.sofaStop,
+                  Self.listeningStop,Cell(x:14,z:14),Cell(x:3,z:13)]
     }
+    func reshuffled() -> House {
+        var next = House()
+        while next.rows == rows && next.fuses == fuses { next = House() }
+        return next
+    }
+
     var doorways: [(cell: Cell, rotated: Bool)] {
         var result = [(cell: Cell, rotated: Bool)]()
         for z in 1..<(rows.count-1) {
@@ -217,5 +226,66 @@ enum OpeningLayout {
 
     static func canOpenDoor(x:Float,z:Float) -> Bool {
         abs(x) < 0.95 && z < frontDoorZ+1.27 && z >= frontDoorZ
+    }
+}
+
+// Uses the game's clock so reading or pausing cannot skip a call cue.
+struct BreakerEncounter {
+    enum Stage: Equatable {
+        case inactive, flicker(started:Float), ringing(until:Float)
+        case connected(knockAt:Float, clueAt:Float, knocked:Bool), finished
+    }
+    enum Cue: Equatable { case ring, knock, clue, missed }
+
+    private(set) var stage = Stage.inactive
+
+    var isActive: Bool {
+        switch stage {
+        case .inactive, .finished: false
+        default: true
+        }
+    }
+
+    mutating func start(at time:Float) {
+        guard stage == .inactive else { return }
+        stage = .flicker(started:time)
+    }
+
+    mutating func answer(at time:Float) -> Bool {
+        guard case .ringing(let until) = stage, time < until else { return false }
+        stage = .connected(knockAt:time+2.8,clueAt:time+5.1,knocked:false)
+        return true
+    }
+
+    mutating func hangUp() -> Bool {
+        guard case .connected = stage else { return false }
+        stage = .finished
+        return true
+    }
+
+    func isLit(at time:Float) -> Bool {
+        guard case .flicker(let started) = stage else { return true }
+        switch time-started {
+        case ..<0.20, 0.40..<0.63, 0.83..<1.07: return true
+        default: return false
+        }
+    }
+
+    mutating func advance(to time:Float) -> Cue? {
+        switch stage {
+        case .flicker(let started) where time >= started+1.35:
+            stage = .ringing(until:time+11)
+            return .ring
+        case .ringing(let until) where time >= until:
+            stage = .finished
+            return .missed
+        case .connected(let knockAt,let clueAt,false) where time >= knockAt:
+            stage = .connected(knockAt:knockAt,clueAt:clueAt,knocked:true)
+            return .knock
+        case .connected(_,let clueAt,true) where time >= clueAt:
+            stage = .finished
+            return .clue
+        default: return nil
+        }
     }
 }

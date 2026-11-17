@@ -122,7 +122,15 @@ final class GameController: UIViewController {
     private var lookRoll: Float = 0
     private var crouched = false
     private var sightTime: Float = 0
+    private enum PatrolActivity { case fridge, listen, television }
+    private var patrolActivity: PatrolActivity?
     private var patrolPauseUntil: Float = 0
+    private var patrolPose: Float = 0
+    private var fridgeHinge: SCNNode?
+    private var fridgeLamp: SCNLight?
+    private var activityCreak: SCNAudioSource?
+    private var televisionBuzz: SCNAudioSource?
+    private var patrolTVAudio: SCNNode?
     private var nextHello: Float = 26
     private var wardrobeReturn: (position:SCNVector3,yaw:Float,pitch:Float)?
     private var wardrobeYaw: Float = 0
@@ -146,6 +154,9 @@ final class GameController: UIViewController {
     private var stepVoice = 0
     private var introBeat = -1
     private var introElapsed: Float = 0
+    private var breaker = BreakerEncounter()
+    private var hasExitClue = false
+    private var wardrobeKnock: SCNAudioSource?
     private var phoneState = PhoneState.idle
     private var nextOutgoing: Float = 0
     private var lure: (target: Cell, until: Float)?
@@ -160,8 +171,10 @@ final class GameController: UIViewController {
     private let status = UILabel(), objective = UILabel(), message = UILabel(), hint = UILabel(), titleLabel = UILabel(), detailLabel = UILabel()
     private let use = UIButton(type:.system), lightButton = UIButton(type:.system), crouchButton = UIButton(type:.system), sprintButton = UIButton(type:.system), phoneButton = UIButton(type:.system), pauseButton = UIButton(type:.system), startButton = UIButton(type:.system), soundButton = UIButton(type:.system)
     private let menu = UIStackView()
+    private let retryActions = UIStackView()
     private let clockLabel = UILabel(), eyebrow = UILabel(), footer = UILabel()
     private let helpButton = UIButton(type:.system)
+    private let newLayoutButton = UIButton(type:.system)
     private let menuArtwork = UIImageView()
     private let menuGradient = CAGradientLayer()
     private var nextBurp: Float = 9
@@ -207,6 +220,7 @@ final class GameController: UIViewController {
         let compact = view.bounds.height < 600
         updateMenuFonts()
         menu.spacing = compact ? 6 : 18
+        retryActions.axis = compact && phase == .caught ? .horizontal : .vertical
         menuGradient.frame = shade.bounds
     }
     private func updateMenuFonts() {
@@ -285,6 +299,9 @@ final class GameController: UIViewController {
         detailLabel.font = vhs(17); detailLabel.numberOfLines = 0; detailLabel.textColor = UIColor(white:0.76,alpha:1)
         button(startButton,"ENTER",#selector(menuAction)); button(soundButton,"SOUND: ON",#selector(toggleSound))
         button(helpButton,"CONTROLS",#selector(showHelp))
+        button(newLayoutButton,"NEW LAYOUT",#selector(newLayout))
+        newLayoutButton.layer.cornerRadius = 6
+        newLayoutButton.isHidden = true
         startButton.backgroundColor = UIColor(red:0.42,green:0.055,blue:0.045,alpha:0.92)
         startButton.layer.borderColor = UIColor(red:0.7,green:0.14,blue:0.1,alpha:1).cgColor
         startButton.layer.cornerRadius = 7
@@ -299,7 +316,15 @@ final class GameController: UIViewController {
             b.titleLabel?.font = vhs(12)
             b.layer.cornerRadius = 5
         }
-        for v in [eyebrow,titleLabel,clockLabel,detailLabel,startButton,secondary] { menu.addArrangedSubview(v) }
+        retryActions.axis = .vertical
+        retryActions.spacing = 9
+        retryActions.distribution = .fillEqually
+        for button in [startButton,newLayoutButton] {
+            button.titleLabel?.adjustsFontSizeToFitWidth = true
+            button.titleLabel?.minimumScaleFactor = 0.69
+            retryActions.addArrangedSubview(button)
+        }
+        for v in [eyebrow,titleLabel,clockLabel,detailLabel,retryActions,secondary] { menu.addArrangedSubview(v) }
         let safeMenu = shade.safeAreaLayoutGuide
         let preferred = menu.widthAnchor.constraint(equalTo:safeMenu.widthAnchor,multiplier:0.48)
         preferred.priority = .defaultHigh
@@ -357,7 +382,7 @@ final class GameController: UIViewController {
         let g = SCNSphere(radius:r); g.segmentCount = 16; g.materials = [material(c,glow:glow)]; let n = SCNNode(geometry:g); n.position = p; parent.addChildNode(n); return n
     }
     private func buildWorld() {
-        world = SCNScene(); reveal = nil; lamps = []; lightPanels = []; thermalScreens = []; fuseNodes = []; fridge = nil; world.background.contents = UIColor.black
+        world = SCNScene(); reveal = nil; lamps = []; lightPanels = []; thermalScreens = []; fuseNodes = []; fridge = nil; fridgeHinge = nil; fridgeLamp = nil; world.background.contents = UIColor.black
         world.fogColor = UIColor(red:0.025,green:0.03,blue:0.035,alpha:1); world.fogStartDistance = 12; world.fogEndDistance = 35
         let ambient = SCNNode(); ambient.light = SCNLight(); ambient.light?.type = .ambient; ambient.light?.color = UIColor(red:0.22,green:0.27,blue:0.36,alpha:1); ambient.light?.intensity = 240; world.rootNode.addChildNode(ambient)
         houseAmbient = ambient.light
@@ -497,7 +522,7 @@ final class GameController: UIViewController {
     private func setRoomPower(_ intensity:CGFloat) {
         lamps.forEach { $0.light?.intensity = intensity }
         lightPanels.forEach { $0.isHidden = intensity <= 0 }
-        thermalScreens.forEach { $0.isHidden = intensity <= 0 }
+        thermalScreens.forEach { $0.isHidden = intensity <= 0 && patrolActivity != .television }
     }
 
     private func buildSurfaces() {
@@ -731,19 +756,23 @@ final class GameController: UIViewController {
     }
 
     private func sofa(at p:SCNVector3) {
+        let frame = SCNNode()
+        frame.position = p
+        frame.eulerAngles.y = -.pi/2
+        world.rootNode.addChildNode(frame)
         let fabric = UIColor(red:0.34,green:0.42,blue:0.36,alpha:1)
         let cushions = UIColor(red:0.42,green:0.50,blue:0.43,alpha:1)
         let upholstery = HouseMaterials.make(.cloth,tint:fabric)
-        let couch = box(SCNVector3(2.58,0.31,0.91),SCNVector3(p.x,0.30,p.z),fabric)
+        let couch = box(SCNVector3(2.58,0.31,0.91),SCNVector3(0,0.30,0),fabric,parent:frame)
         couch.geometry?.materials = [upholstery]
-        box(SCNVector3(2.56,0.66,0.17),SCNVector3(p.x,0.68,p.z-0.38),fabric)
+        box(SCNVector3(2.56,0.66,0.17),SCNVector3(0,0.68,-0.38),fabric,parent:frame)
         for x in [Float(-1.14),1.14] {
-            box(SCNVector3(0.26,0.43,0.91),SCNVector3(p.x+x,0.55,p.z),fabric)
+            box(SCNVector3(0.26,0.43,0.91),SCNVector3(x,0.55,0),fabric,parent:frame)
         }
         for x in [Float(-0.68),0,0.68] {
-            let seat = box(SCNVector3(0.65,0.12,0.63),SCNVector3(p.x+x,0.50,p.z+0.065),cushions)
+            let seat = box(SCNVector3(0.65,0.12,0.63),SCNVector3(x,0.50,0.065),cushions,parent:frame)
             seat.geometry?.materials = [upholstery]
-            box(SCNVector3(0.65,0.40,0.15),SCNVector3(p.x+x,0.76,p.z-0.235),cushions)
+            box(SCNVector3(0.65,0.40,0.15),SCNVector3(x,0.76,-0.235),cushions,parent:frame)
         }
     }
 
@@ -757,17 +786,35 @@ final class GameController: UIViewController {
         case .kitchen: // Kitchen: two-door fridge with an audible compressor.
             buildKitchen(at:p)
             fridge = box(SCNVector3(1.04,2.26,0.39),SCNVector3(p.x,1.13,wall+0.09),enamel)
-            box(SCNVector3(1.02,0.045,0.03),SCNVector3(p.x,1.54,wall+0.29),darkMetal)
-            for y in [Float(1.24), 1.77] {
-                box(SCNVector3(0.07,0.24,0.08),SCNVector3(p.x-0.37,y,wall+0.32),darkMetal)
+            box(SCNVector3(0.92,1.97,0.019),SCNVector3(p.x,1.11,wall+0.288),darkMetal)
+            for y in [Float(0.53),0.94,1.36] {
+                box(SCNVector3(0.90,0.049,0.16),SCNVector3(p.x,y,wall+0.315),.lightGray)
             }
-            box(SCNVector3(0.05,0.04,0.02),SCNVector3(p.x+0.35,0.25,wall+0.3),.systemGreen,glow:true)
+            let hinge = SCNNode()
+            hinge.position = SCNVector3(p.x+0.51,0,wall+0.393)
+            world.rootNode.addChildNode(hinge)
+            fridgeHinge = hinge
+            box(SCNVector3(1.02,2.18,0.093),SCNVector3(-0.51,1.12,0),enamel,parent:hinge)
+            box(SCNVector3(1.01,0.039,0.016),SCNVector3(-0.51,1.54,0.05),darkMetal,parent:hinge)
+            for y in [Float(1.24),1.77] {
+                box(SCNVector3(0.07,0.24,0.08),SCNVector3(-0.87,y,0.067),darkMetal,parent:hinge)
+            }
+            let bulb = SCNNode()
+            let light = SCNLight()
+            light.type = .omni
+            light.color = UIColor(red:0.72,green:0.84,blue:0.96,alpha:1)
+            light.intensity = 0
+            light.attenuationEndDistance = 2.9
+            bulb.light = light
+            bulb.position = SCNVector3(p.x,1.75,wall+0.52)
+            fridgeLamp = light
+            world.rootNode.addChildNode(bulb)
         case .lounge:
             box(SCNVector3(2.14,0.63,0.61),SCNVector3(p.x,0.33,wall+0.23),UIColor(red:0.37,green:0.22,blue:0.14,alpha:1))
             for x in [Float(-0.53),0.53] {
                 box(SCNVector3(0.69,0.43,0.02),SCNVector3(p.x+x,0.37,wall+0.548),.darkGray)
             }
-            sofa(at:SCNVector3(p.x+2.45,0,wall+0.55))
+            sofa(at:SCNVector3(p.x+House.tile,0,p.z+0.20))
             box(SCNVector3(1.48,0.94,0.42),SCNVector3(p.x,1.41,wall+0.07),darkMetal)
             let screen = box(SCNVector3(1.18,0.70,0.018),SCNVector3(p.x-0.04,1.43,wall+0.29),UIColor(red:0.14,green:0.43,blue:0.48,alpha:1),glow:true)
             thermalScreens.append(screen)
@@ -928,13 +975,15 @@ final class GameController: UIViewController {
         playRoomSound(source,at:point(pipe,y:2.95))
     }
 
-    private func playRoomSound(_ source:SCNAudioSource,at position:SCNVector3) {
+    @discardableResult
+    private func playRoomSound(_ source:SCNAudioSource,at position:SCNVector3,duration:TimeInterval = 3) -> SCNNode {
         let node = SCNNode()
         node.name = "roomEffect"
         node.position = position
         world.rootNode.addChildNode(node)
         node.addAudioPlayer(SCNAudioPlayer(source:source))
-        node.runAction(.sequence([.wait(duration:3),.removeFromParentNode()]))
+        node.runAction(.sequence([.wait(duration:duration),.removeFromParentNode()]))
+        return node
     }
 
     private func tripFloorboard() -> Bool {
@@ -1003,7 +1052,7 @@ final class GameController: UIViewController {
     }
 
     @objc private func showHelp() {
-        let panel = UIAlertController(title:"HOW TO SURVIVE",message:"Left thumb: move. RUN toggles sprint. Drag the right side to look.\n\nCROUCH to stay undetected. RUN stands you up. Find three cyan fuses, then use the red fuse box and green exit.\n\nCALL WALEED rings his phone in another room. HANG UP before he traces you. SILENCE incoming calls and break line of sight before hiding.\n\nUse the steel shelter in the study when you can reach it safely. Some boards will give you away. Read notes for clues.\n\nContains sudden sounds and jumpscares.",preferredStyle:.alert)
+        let panel = UIAlertController(title:"HOW TO SURVIVE",message:"Left thumb: move. RUN toggles sprint. Drag the right side to look.\n\nCROUCH to stay undetected. RUN stands you up. Find three cyan fuses, then use the red fuse box. After the lights flicker, you can answer the phone or head to the green exit.\n\nCALL WALEED rings his phone in another room. HANG UP before he traces you. SILENCE incoming calls and break line of sight before hiding.\n\nUse the steel shelter in the study when you can reach it safely. Some boards will give you away. Read notes for clues.\n\nContains sudden sounds and jumpscares.",preferredStyle:.alert)
         panel.addAction(UIAlertAction(title:"GOT IT",style:.default))
         present(panel,animated:true)
     }
@@ -1020,6 +1069,10 @@ final class GameController: UIViewController {
         guard soundEnabled else { return }
         if let fridgeHum { fridge?.addAudioPlayer(SCNAudioPlayer(source:fridgeHum)) }
         if let ringtone { remoteRing?.addAudioPlayer(SCNAudioPlayer(source:ringtone)) }
+        if patrolActivity == .television, let source = televisionBuzz, patrolPauseUntil > elapsed {
+            patrolTVAudio = playRoomSound(source,at:point(Cell(x:4,z:6),y:1.40),
+                                          duration:TimeInterval(patrolPauseUntil-elapsed))
+        }
     }
 
     private func ambientBurp() {
@@ -1063,7 +1116,20 @@ final class GameController: UIViewController {
                 pipeSources.append(clip)
             }
         }
+        activityCreak = SCNAudioSource(fileNamed:"door-latch.wav")
+        televisionBuzz = SCNAudioSource(fileNamed:"tv-buzz.wav")
+        for source in [activityCreak,televisionBuzz].compactMap({ $0 }) {
+            source.isPositional = true
+            source.volume = 0.94
+            source.load()
+        }
         ringtone = loopingSource("ring.wav",volume:0.95)
+        if let knock = SCNAudioSource(fileNamed:"door-knock.wav") {
+            knock.isPositional = true
+            knock.volume = 1
+            knock.load()
+            wardrobeKnock = knock
+        }
         fridgeHum = loopingSource("fridge.wav",volume:0.6)
         for name in ["drone","ring","ringback","step-a","step-b","step-c","step-d","line-static","door-knock","door-latch","sting","pickup","heartbeat","blackout","scare-burp"] {
             if let url = Bundle.main.url(forResource:name,withExtension:"wav"),let p = try? AVAudioPlayer(contentsOf:url) { p.prepareToPlay(); players[name] = p }
@@ -1104,6 +1170,9 @@ final class GameController: UIViewController {
         titleLabel.text = title; detailLabel.text = detail; updateMenuFonts(); startButton.setTitle(action,for:.normal); shade.isHidden = false; controls.isHidden = true; stick.reset(); setRunning(false)
         players.values.forEach { $0.stop() }; stopSceneAudio(); sceneView.isPlaying = false
         clockLabel.isHidden = phase != .title; eyebrow.isHidden = phase != .title
+        newLayoutButton.isHidden = phase != .caught
+        retryActions.axis = view.bounds.height < 600 && phase == .caught ? .horizontal : .vertical
+        if breaker.isActive { phoneVoice.stopSpeaking(at:.immediate) }
         UIApplication.shared.isIdleTimerDisabled = false
     }
     @objc private func menuAction() {
@@ -1115,8 +1184,22 @@ final class GameController: UIViewController {
             resumeDownstairs()
             return
         }
+        if phase == .caught {
+            restartFromFoyer(keepLayout:true)
+            return
+        }
         if phase != .paused { resetGame() }
         beginPlaying()
+    }
+
+    @objc private func newLayout() {
+        guard phase == .caught else { return }
+        restartFromFoyer(keepLayout:false)
+    }
+
+    private func restartFromFoyer(keepLayout:Bool) {
+        resetGame(keepLayout:keepLayout)
+        finishOpening()
     }
 
     private func showGameplay() {
@@ -1138,6 +1221,7 @@ final class GameController: UIViewController {
         if soundEnabled {
             players["drone"]?.play()
             if case .incoming = phoneState { players["ring"]?.play() }
+            if case .ringing = breaker.stage { players["ring"]?.play() }
             if case .outgoing = phoneState { players["ringback"]?.play() }
         }
         resumeSceneAudio()
@@ -1429,11 +1513,16 @@ final class GameController: UIViewController {
         tell("Find three fuses. The hall is through the foyer doorway.",duration:8)
     }
 
-    private func resetGame() {
-        house = House()
+    private func resetGame(keepLayout:Bool = false) {
+        if !keepLayout { house = house.reshuffled() }
+        breaker = BreakerEncounter()
+        hasExitClue = false
         setCrouched(false)
         sightTime = 0
         patrolPauseUntil = 0
+        patrolActivity = nil
+        patrolTVAudio = nil
+        patrolPose = 0
         nextHello = Float.random(in:22...38)
         wardrobeReturn = nil
         reader.isHidden = true
@@ -1503,7 +1592,7 @@ final class GameController: UIViewController {
     private func updateYamenVoice() {
         guard elapsed >= nextHello else { return }
         nextHello = elapsed + Float.random(in:28...57)
-        guard !hidden, !crouched, elapsed >= huntUntil, case .idle = phoneState else { return }
+        guard !hidden, !crouched, !breaker.isActive, elapsed >= huntUntil, case .idle = phoneState else { return }
         speakHello()
     }
 
@@ -1518,6 +1607,19 @@ final class GameController: UIViewController {
 
     @objc private func phoneAction() {
         guard phase == .playing else { return }
+        if breaker.isActive {
+            if breaker.answer(at:elapsed) {
+                players["ring"]?.stop()
+                tell("Waleed, whispering: “I’m at the front door.”",duration:3.0)
+                whisper("I'm at the front door.")
+            } else if breaker.hangUp() {
+                phoneVoice.stopSpeaking(at:.immediate)
+                nextCall = elapsed+26
+                tell("You hung up. Find the green exit.")
+            }
+            updatePhoneButton()
+            return
+        }
         switch phoneState {
         case .idle:
             guard elapsed >= nextOutgoing else { return }
@@ -1544,6 +1646,57 @@ final class GameController: UIViewController {
         updatePhoneButton()
     }
 
+    private func whisper(_ words:String) {
+        guard soundEnabled else { return }
+        phoneVoice.stopSpeaking(at:.immediate)
+        let line = AVSpeechUtterance(string:words)
+        line.voice = AVSpeechSynthesisVoice(language:"en-GB")
+        line.rate = 0.44
+        line.pitchMultiplier = 0.80
+        line.volume = 0.53
+        phoneVoice.speak(line)
+    }
+
+    private func restorePower() {
+        power = true
+        endCall()
+        phoneVoice.stopSpeaking(at:.immediate)
+        breaker.start(at:elapsed)
+        setRoomPower(560)
+        play("pickup")
+        tell("The breaker clicks. The lights flicker.",duration:2)
+    }
+
+    private func updateBreaker() {
+        if case .flicker = breaker.stage {
+            setRoomPower(breaker.isLit(at:elapsed) ? 560 : 0)
+        }
+        guard let cue = breaker.advance(to:elapsed) else { return }
+        switch cue {
+        case .ring:
+            setRoomPower(560)
+            tell("WALEED IS CALLING",duration:6)
+            play("ring")
+        case .knock:
+            if soundEnabled, let clip = wardrobeKnock,
+               let closet = House.closets.min(by:{ distance(point($0), camera.position) < distance(point($1), camera.position) }) {
+                let place = wardrobeCenter(closet)
+                playRoomSound(clip,at:SCNVector3(place.x,1.24,place.z))
+            }
+            tell("Three knocks come from inside the wardrobe.",duration:3)
+        case .clue:
+            hasExitClue = true
+            nextCall = elapsed+28
+            let clue = "The green door is on the back wall of the foyer wing."
+            tell("Waleed: “\(clue)”",duration:7)
+            whisper(clue)
+        case .missed:
+            players["ring"]?.stop()
+            nextCall = elapsed+28
+            tell("Missed call. The green exit is unlocked.")
+        }
+    }
+
     private func endCall() {
         if case .outgoing = phoneState { nextOutgoing = elapsed+12 }
         phoneState = .idle
@@ -1555,6 +1708,15 @@ final class GameController: UIViewController {
     }
 
     private func updatePhoneButton() {
+        if breaker.isActive {
+            switch breaker.stage {
+            case .ringing: phoneButton.setTitle("ANSWER",for:.normal); phoneButton.isEnabled = true
+            case .connected: phoneButton.setTitle("HANG UP",for:.normal); phoneButton.isEnabled = true
+            default: phoneButton.setTitle("NO SIGNAL",for:.normal); phoneButton.isEnabled = false
+            }
+            phoneButton.alpha = phoneButton.isEnabled ? 1 : 0.62
+            return
+        }
         switch phoneState {
         case .idle:
             let ready = elapsed >= nextOutgoing
@@ -1572,6 +1734,10 @@ final class GameController: UIViewController {
 
     private func updatePhone() -> Bool {
         defer { updatePhoneButton() }
+        if breaker.isActive {
+            updateBreaker()
+            return false
+        }
         switch phoneState {
         case .idle:
             if elapsed >= nextCall {
@@ -1673,7 +1839,7 @@ final class GameController: UIViewController {
             return
         }
         if near(House.panel) {
-            if collected.count == 3 && !power { power = true; setRoomPower(560); play("pickup"); tell("Power restored. Get to the green exit door!",duration:6) }
+            if collected.count == 3 && !power { restorePower() }
             else { tell(power ? "The power is already on." : "Fuse box: \(3-collected.count) more fuses needed.") }; return
         }
         if near(House.exit) { if power { finish(escaped:true) } else { tell("The electric lock has no power.") }; return }
@@ -1702,6 +1868,7 @@ final class GameController: UIViewController {
     }
     private func finish(escaped: Bool) {
         phase = escaped ? .escaped : .caught
+        phoneVoice.stopSpeaking(at:.immediate)
         if escaped {
             let ending = readNotes.count == notes.count ?
                 "Outside, Yamen’s phone lights up. The service log was right: the house was using Waleed’s number. He leaves the phone on the doorstep." :
@@ -1772,7 +1939,7 @@ final class GameController: UIViewController {
 
         DispatchQueue.main.asyncAfter(deadline:.now()+1.55) { [weak self] in
             guard let self, self.phase == .caught else { return }
-            self.showMenu("HE FOUND YOU.","Don’t call Waleed at 3 AM.\n\nWalk to stay quiet. Silence incoming calls.\nHide by a gold handle.\nBreak his line of sight before hiding.","TRY AGAIN")
+            self.showMenu("HE FOUND YOU.","Don’t call Waleed at 3 AM.\n\nWalk to stay quiet. Silence incoming calls.\nHide by a gold handle.\nBreak his line of sight before hiding.","RETRY THIS LAYOUT")
         }
     }
 
@@ -1836,7 +2003,7 @@ final class GameController: UIViewController {
         let separation = distance(p,enemy.position)
         let sight = seesPlayer(separation)
         let incoming: Bool
-        if case .incoming = phoneState { incoming = true } else { incoming = false }
+        if case .incoming = phoneState { incoming = true } else if case .ringing = breaker.stage { incoming = true } else { incoming = false }
         let heardFootsteps = moving && separation < (sprint ? 7.9 : 2.15)
         sightTime = sight ? min(1.15,sightTime+dt) : max(0,sightTime-dt*2.0)
         let detected = !hidden && !crouched &&
@@ -1845,6 +2012,7 @@ final class GameController: UIViewController {
         if elapsed > 13 || lure != nil || traced { enemyAwake = true }
         if enemyAwake, detected {
             huntUntil = elapsed+7.4
+            finishPatrolActivity()
             patrolPauseUntil = 0
             lastKnownPlayer = cell
             searchRoute.removeAll()
@@ -1859,21 +2027,16 @@ final class GameController: UIViewController {
                 lastKnownPlayer = nil
                 searchRoute.removeAll()
                 if let lure, elapsed < lure.until {
+                    finishPatrolActivity()
                     patrolPauseUntil = 0
                     enemyTarget = lure.target
                 } else {
                     lure = nil
                     if reached(enemyTarget), enemyTarget == house.patrol[patrolIndex] {
                         if patrolPauseUntil == 0 {
-                            patrolPauseUntil = elapsed + Float.random(in:2.8...6.3)
-                            if soundEnabled {
-                                let clip = patrolIndex.isMultiple(of:3) ? burpSources.randomElement() :
-                                    (patrolIndex.isMultiple(of:2) ? pipeSources.first : nil)
-                                if let clip {
-                                    playRoomSound(clip,at:SCNVector3(enemy.position.x,1.1,enemy.position.z))
-                                }
-                            }
+                            beginPatrolActivity(at:enemyTarget)
                         } else if elapsed >= patrolPauseUntil {
+                            finishPatrolActivity()
                             patrolPauseUntil = 0
                             patrolIndex = (patrolIndex+1)%house.patrol.count
                         }
@@ -1885,20 +2048,27 @@ final class GameController: UIViewController {
             let speed: Float = hunting ? (power ? 4.45 : 4.15) : 2.26
             let waiting = !hunting && elapsed < patrolPauseUntil
             let moved: Float = waiting ? 0 : advanceEnemy(visiblePlayer:sight && hunting ? p : nil,speed:speed,dt:dt)
-            enemyHead.eulerAngles.x = waiting ? (patrolIndex.isMultiple(of:2) ? -0.12 : 0.27) + sin(elapsed*1.25)*0.13 : 0
-            if waiting { enemy.eulerAngles.y += sin(elapsed*1.6)*dt*0.74 }
+            let sit = waiting && patrolActivity == .television
+            patrolPose += ((sit ? 1 : 0)-patrolPose)*min(1,dt*5)
+            if waiting {
+                animatePatrolActivity(dt:dt)
+            } else {
+                enemyHead.eulerAngles.x = 0
+            }
             gait += moved*4.9
             let amount: Float = hunting ? 0.74 : 0.45
             let stride = moved > 0.001 ? sin(gait)*amount : 0
-            let target: [Float] = [-stride,stride,stride,-stride]
+            let hip: Float = 1.15*patrolPose
+            let arm: Float = waiting && patrolActivity == .fridge ? -0.61 : 0
+            let target: [Float] = [-stride+arm,stride,stride-hip,-stride-hip]
             let bend: [Float] = [0.38+max(0,stride)*0.42,0.38+max(0,-stride)*0.42,
-                                 -max(0,-stride)*0.88,-max(0,stride)*0.88]
+                                 -max(0,-stride)*0.88+hip,-max(0,stride)*0.88+hip]
             for index in enemyLimbs.indices {
                 enemyLimbs[index].eulerAngles.x += (target[index]-enemyLimbs[index].eulerAngles.x)*min(1,dt*17)
                 enemyBend[index].eulerAngles.x += (bend[index]-enemyBend[index].eulerAngles.x)*min(1,dt*17)
             }
             enemy.eulerAngles.x = hunting && moved > 0.001 ? 0.12 : 0
-            enemy.position.y = moved > 0.001 ? abs(sin(gait))*0.05 : 0
+            enemy.position.y = (moved > 0.001 ? abs(sin(gait))*0.05 : 0)-0.43*patrolPose
         }
 
         let e = enemy.position
@@ -1923,6 +2093,71 @@ final class GameController: UIViewController {
             players["heartbeat"]?.stop()
         }
         return true
+    }
+
+    private func beginPatrolActivity(at cell:Cell) {
+        switch cell {
+        case House.fridgeStop:
+            patrolActivity = .fridge
+            patrolPauseUntil = elapsed+4.7
+            let open = SCNAction.rotateTo(x:0,y:0.89,z:0,duration:0.61,usesShortestUnitArc:true)
+            open.timingMode = .easeInEaseOut
+            fridgeHinge?.runAction(open,forKey:"fridge-door")
+            fridgeLamp?.intensity = 270
+            if soundEnabled, let source = activityCreak {
+                playRoomSound(source,at:SCNVector3(enemy.position.x,1.4,enemy.position.z-0.70))
+            }
+        case House.sofaStop:
+            patrolActivity = .television
+            patrolPauseUntil = elapsed+7.2
+            thermalScreens.forEach { $0.isHidden = false }
+            if soundEnabled, let source = televisionBuzz {
+                patrolTVAudio = playRoomSound(source,at:point(Cell(x:4,z:6),y:1.40),duration:7.0)
+            }
+        case House.listeningStop:
+            patrolActivity = .listen
+            patrolPauseUntil = elapsed+4.3
+            if soundEnabled, let tap = pipeSources.first {
+                playRoomSound(tap,at:SCNVector3(enemy.position.x,1.22,enemy.position.z))
+            }
+        default:
+            patrolPauseUntil = elapsed+Float.random(in:1.8...3.9)
+        }
+    }
+
+    private func finishPatrolActivity() {
+        switch patrolActivity {
+        case .fridge:
+            fridgeHinge?.runAction(.rotateTo(x:0,y:0,z:0,duration:0.37,usesShortestUnitArc:true),forKey:"fridge-door")
+            fridgeLamp?.intensity = 0
+        case .television:
+            let screenOn = power && breaker.isLit(at:elapsed)
+            thermalScreens.forEach { $0.isHidden = !screenOn }
+            patrolTVAudio?.removeFromParentNode()
+            patrolTVAudio = nil
+        default: break
+        }
+        patrolActivity = nil
+    }
+
+    private func animatePatrolActivity(dt:Float) {
+        let facing: Float
+        switch patrolActivity {
+        case .fridge:
+            facing = 0
+            enemyHead.eulerAngles.x = 0.26 + sin(elapsed*2.0)*0.10
+        case .television:
+            facing = .pi/2
+            enemyHead.eulerAngles.x = -0.04 + sin(elapsed*0.8)*0.07
+        case .listen:
+            facing = -.pi/2
+            enemyHead.eulerAngles.x = 0.08
+        default:
+            enemy.eulerAngles.y += sin(elapsed*1.6)*dt*0.74
+            return
+        }
+        let delta = facing-enemy.eulerAngles.y
+        enemy.eulerAngles.y += atan2(sin(delta),cos(delta))*min(1,dt*7)
     }
 
     private func reached(_ cell: Cell) -> Bool {
@@ -1985,7 +2220,10 @@ final class GameController: UIViewController {
         default: break
         }
         elapsed += dt
-        if elapsed > nextBurp { ambientBurp(); nextBurp = elapsed+Float.random(in:10...24) }
+        if elapsed > nextBurp {
+            if !breaker.isActive { ambientBurp() }
+            nextBurp = elapsed+Float.random(in:10...24)
+        }
         if elapsed > messageUntil { message.text = "" }
         let moving = !hidden && hypot(stick.vector.x,stick.vector.y) > 0.12
         let sprint = running && moving && !crouched && stamina > 2
@@ -2019,13 +2257,13 @@ final class GameController: UIViewController {
         torch.light?.intensity = flashlight && !hidden ? flashlightIntensity : 0
         camera.camera?.exposureOffset = wardrobeReturn != nil ? 0.34 : (hidden ? -1 : 0)
         moveDoors(dt:dt)
-        updatePipes()
+        if !breaker.isActive { updatePipes() }
         updateYamenVoice()
         let traced = updatePhone()
         let trap = tripFloorboard()
         guard updateEnemy(dt:dt,sprint:sprint,moving:stepped,traced:traced || trap) else { return }
         status.text = "3:\(String(format:"%02d",min(59,Int(elapsed/12)))) AM   LIGHT \(Int(battery))%   BREATH \(Int(stamina))%"
-        objective.text = power ? "POWER ON · REACH THE GREEN EXIT" : "FUSES \(collected.count)/3 · \(collected.count == 3 ? "FIND THE RED FUSE BOX" : "SEARCH THE HOUSE")"
+        objective.text = power ? (hasExitClue ? "GREEN EXIT · BACK WALL OF FOYER WING" : "POWER ON · REACH THE GREEN EXIT") : "FUSES \(collected.count)/3 · \(collected.count == 3 ? "FIND THE RED FUSE BOX" : "SEARCH THE HOUSE")"
         if hidden { hint.text = wardrobeReturn != nil ? "LOOK THROUGH THE GAP · USE TO LEAVE" : "HIDDEN · USE TO LEAVE" }
         else if nearbyFuse() != nil { hint.text = "USE · TAKE FUSE" }
         else if near(shelter,range:2) { hint.text = "USE · STEEL SHELTER" }
